@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# check_system.sh
+#
+# Dependency and system health checks for basler_pipeline.sh.
+# Called automatically by basler_pipeline.sh before launch (quiet mode).
+# Run manually for full diagnostic output:
+#
+#   ./check_system.sh [bayer|color] [h264|h265] [rtsp|fakesink]
+#
+# Arguments are optional and default to the same values as the pipeline script.
+# Exit code: 0 = all critical checks pass, 1 = one or more failures.
+# Warnings do not affect the exit code but should be addressed for production.
+# ==============================================================================
+
+set -euo pipefail
+
+
+# ==============================================================================
+# ARGUMENTS
+# ==============================================================================
+
+QUIET=0
+CAPTURE_MODE="bayer"
+ENCODER="h265"
+OUTPUT_MODE="rtsp"
+
+for arg in "$@"; do
+  case "$arg" in
+    --quiet)          QUIET=1 ;;
+    bayer|color)      CAPTURE_MODE="$arg" ;;
+    h264|h265)        ENCODER="$arg" ;;
+    rtsp|fakesink)    OUTPUT_MODE="$arg" ;;
+    *)
+      echo "Usage: $0 [--quiet] [bayer|color] [h264|h265] [rtsp|fakesink]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+
+# ==============================================================================
+# OUTPUT HELPERS
+# ==============================================================================
+
+FAILURES=0
+WARNINGS=0
+
+section() { [[ "$QUIET" -eq 0 ]] && echo "" && echo "--- $1 ---"; return 0; }
+ok()      { [[ "$QUIET" -eq 0 ]] && echo "  [OK]   $1"; return 0; }
+info()    { [[ "$QUIET" -eq 0 ]] && echo "  [INFO] $1"; return 0; }
+warn()    { echo "  [WARN] $1"; WARNINGS=$(( WARNINGS + 1 )); }
+fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
+
+
+# ==============================================================================
+# 1 - GSTREAMER DEPENDENCIES
+# ==============================================================================
+
+section "GStreamer dependencies"
+
+check_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    fail "command not found: $1  -- fix: $2"
+  else
+    ok "command: $1"
+  fi
+}
+
+check_plugin() {
+  if ! gst-inspect-1.0 "$1" >/dev/null 2>&1; then
+    fail "GStreamer plugin missing: $1  -- fix: $2"
+  else
+    ok "plugin: $1"
+  fi
+}
+
+check_cmd gst-launch-1.0  "sudo apt install gstreamer1.0-tools"
+check_cmd gst-inspect-1.0 "sudo apt install gstreamer1.0-tools"
+
+check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
+check_plugin nvvidconv  "re-run JetPack installer"
+check_plugin identity   "sudo apt install gstreamer1.0-plugins-base"
+
+if [[ "$CAPTURE_MODE" == "bayer" ]]; then
+  check_plugin bayer2rgb "sudo apt install gstreamer1.0-plugins-bad"
+fi
+
+case "$ENCODER" in
+  h264)
+    check_plugin nvv4l2h264enc "re-run JetPack installer"
+    check_plugin h264parse     "sudo apt install gstreamer1.0-plugins-bad"
+    ;;
+  h265)
+    check_plugin nvv4l2h265enc "re-run JetPack installer"
+    check_plugin h265parse     "sudo apt install gstreamer1.0-plugins-bad"
+    ;;
+esac
+
+if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
+  case "$ENCODER" in
+    h264) check_plugin rtph264pay "sudo apt install gstreamer1.0-plugins-good" ;;
+    h265) check_plugin rtph265pay "sudo apt install gstreamer1.0-plugins-good" ;;
+  esac
+  check_plugin rtspclientsink "sudo apt install gstreamer1.0-plugins-bad"
+fi
+
+
+# ==============================================================================
+# 2 - USB BUFFER MEMORY
+# Basler cameras require a large USB transfer buffer. The kernel default of
+# 16 MB is far too small for a 12 MP camera at 25 fps (~307 MB/s).
+# Without this the camera will drop frames immediately.
+# ==============================================================================
+
+section "USB buffer memory"
+
+USB_MEM_FILE="/sys/module/usbcore/parameters/usbfs_memory_mb"
+if [[ -f "$USB_MEM_FILE" ]]; then
+  USB_MEM=$(cat "$USB_MEM_FILE")
+  if [[ "$USB_MEM" -lt 1000 ]]; then
+    warn "usbfs_memory_mb = ${USB_MEM} MB -- too low for 12 MP camera (need >= 1000)"
+    warn "     Fix now : sudo sh -c 'echo 1000 > ${USB_MEM_FILE}'"
+    warn "     Persist : add the above line to /etc/rc.local before 'exit 0'"
+  else
+    ok "usbfs_memory_mb = ${USB_MEM} MB"
+  fi
+else
+  warn "Cannot read ${USB_MEM_FILE} -- usbcore module may not be loaded"
+fi
+
+
+# ==============================================================================
+# 3 - JETSON POWER AND CLOCK CONFIGURATION
+# nvpmodel and jetson_clocks control CPU, GPU and memory clock limits.
+# Running in a low-power mode caps clocks and will cause pipeline stalls.
+# ==============================================================================
+
+section "Jetson power and clock configuration"
+
+# nvpmodel: check for MAXN (mode 0 = all engines at maximum)
+if command -v nvpmodel >/dev/null 2>&1; then
+  POWER_LINE=$(nvpmodel -q 2>/dev/null | grep "NV Power Mode" | head -1 || true)
+  if echo "$POWER_LINE" | grep -q "MAXN"; then
+    ok "nvpmodel: $POWER_LINE"
+  else
+    warn "nvpmodel: $POWER_LINE"
+    warn "     Fix: sudo nvpmodel -m 0  (MAXN = unrestricted performance)"
+  fi
+else
+  warn "nvpmodel not found -- cannot verify power mode"
+fi
+
+# CPU frequency governor (should be 'performance', set by jetson_clocks)
+GOV_FILE="/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
+if [[ -f "$GOV_FILE" ]]; then
+  GOV=$(cat "$GOV_FILE")
+  if [[ "$GOV" == "performance" ]]; then
+    ok "CPU governor: performance"
+  else
+    warn "CPU governor: ${GOV}  (expected: performance)"
+    warn "     Fix: sudo jetson_clocks"
+  fi
+else
+  warn "Cannot read CPU governor from ${GOV_FILE}"
+fi
+
+# CPU clock: compare current vs maximum to detect throttling or jetson_clocks off
+CUR_FILE="/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"
+MAX_FILE="/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
+if [[ -f "$CUR_FILE" && -f "$MAX_FILE" ]]; then
+  CUR=$(cat "$CUR_FILE")
+  MAX=$(cat "$MAX_FILE")
+  PCT=$(( CUR * 100 / MAX ))
+  CUR_GHZ=$(awk "BEGIN {printf \"%.2f\", ${CUR}/1000000}")
+  MAX_GHZ=$(awk "BEGIN {printf \"%.2f\", ${MAX}/1000000}")
+  if [[ "$PCT" -lt 90 ]]; then
+    warn "CPU0 clock: ${CUR_GHZ} GHz (${PCT}% of ${MAX_GHZ} GHz max)"
+    warn "     Possible cause: jetson_clocks not running, or thermal throttle"
+    warn "     Fix: sudo jetson_clocks"
+  else
+    ok "CPU0 clock: ${CUR_GHZ} GHz (${PCT}% of ${MAX_GHZ} GHz max)"
+  fi
+fi
+
+
+# ==============================================================================
+# 4 - THERMAL THROTTLING
+# If the SoC is hot, the kernel reduces clock speeds automatically.
+# This can cause the pipeline to stall and drop frames unpredictably.
+# ==============================================================================
+
+section "Thermal state"
+
+THROTTLED=0
+for POLICY in /sys/devices/system/cpu/cpufreq/policy*/; do
+  [[ -f "${POLICY}scaling_cur_freq" && -f "${POLICY}scaling_max_freq" ]] || continue
+  CUR=$(cat "${POLICY}scaling_cur_freq")
+  MAX=$(cat "${POLICY}scaling_max_freq")
+  PCT=$(( CUR * 100 / MAX ))
+  NAME=$(basename "$POLICY")
+  if [[ "$PCT" -lt 80 ]]; then
+    warn "Thermal throttle on ${NAME}: running at ${PCT}% of max clock"
+    THROTTLED=1
+  else
+    ok "${NAME}: ${PCT}% of max clock"
+  fi
+done
+
+# SoC temperature zones
+for ZONE in /sys/class/thermal/thermal_zone*/; do
+  [[ -f "${ZONE}temp" && -f "${ZONE}type" ]] || continue
+  ZONE_TYPE=$(cat "${ZONE}type")
+  TEMP_RAW=$(cat "${ZONE}temp")
+  TEMP_C=$(awk "BEGIN {printf \"%.1f\", ${TEMP_RAW}/1000}")
+  # Warn above 80 C
+  TEMP_INT=$(( TEMP_RAW / 1000 ))
+  if [[ "$TEMP_INT" -ge 80 ]]; then
+    warn "High temperature: ${ZONE_TYPE} = ${TEMP_C} C -- thermal throttle likely"
+  elif [[ "$TEMP_INT" -ge 70 ]]; then
+    warn "Elevated temperature: ${ZONE_TYPE} = ${TEMP_C} C -- monitor for throttle"
+  else
+    ok "Thermal zone ${ZONE_TYPE}: ${TEMP_C} C"
+  fi
+done
+
+
+# ==============================================================================
+# 5 - KERNEL TRACING AND DEBUG OVERHEAD
+# Active ftrace, high GST_DEBUG levels, and kernel debug features add
+# scheduling latency and can cause dropped frames.
+# ==============================================================================
+
+section "Debug and tracing overhead"
+
+# GST_DEBUG: if set it causes per-buffer logging overhead in every element
+if [[ -n "${GST_DEBUG:-}" ]]; then
+  warn "GST_DEBUG is set: '${GST_DEBUG}'"
+  warn "     Per-element logging adds CPU overhead -- unset for production"
+  warn "     Unset: unset GST_DEBUG"
+else
+  ok "GST_DEBUG is not set"
+fi
+
+# ftrace: active kernel function tracing adds measurable scheduling latency
+FTRACE_FILE="/sys/kernel/debug/tracing/tracing_on"
+if [[ -f "$FTRACE_FILE" ]]; then
+  FTRACE=$(cat "$FTRACE_FILE" 2>/dev/null || echo "0")
+  if [[ "$FTRACE" == "1" ]]; then
+    warn "ftrace is active -- kernel function tracing adds scheduling overhead"
+    warn "     Disable: sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+  else
+    ok "ftrace is inactive"
+  fi
+fi
+
+# perf: check if perf_event_paranoid is restrictive (informational only)
+PERF_FILE="/proc/sys/kernel/perf_event_paranoid"
+if [[ -f "$PERF_FILE" ]]; then
+  PERF_VAL=$(cat "$PERF_FILE")
+  info "perf_event_paranoid = ${PERF_VAL}"
+fi
+
+
+# ==============================================================================
+# 6 - CAMERA HARDWARE DETECTION
+# ==============================================================================
+
+section "Camera hardware"
+
+# Basler USB vendor ID is 0x2676
+BASLER_VID="2676"
+if command -v lsusb >/dev/null 2>&1; then
+  BASLER_LINE=$(lsusb 2>/dev/null | grep -i "ID ${BASLER_VID}:" | head -1 || true)
+  if [[ -n "$BASLER_LINE" ]]; then
+    ok "Basler camera detected: $BASLER_LINE"
+    info "Verify USB speed (must be 5000M = USB3 SuperSpeed):"
+    info "     lsusb -t  -- look for '5000M' on the Basler device line"
+  else
+    warn "No Basler camera detected (USB vendor ID ${BASLER_VID} not found)"
+    warn "     Check: lsusb | grep ${BASLER_VID}"
+    warn "     Verify the camera is powered on and the USB cable is seated"
+  fi
+else
+  warn "lsusb not available -- cannot detect camera"
+  warn "     Install: sudo apt install usbutils"
+fi
+
+
+# ==============================================================================
+# 7 - AVAILABLE MEMORY
+# Pipeline buffers, NVMM surfaces, and encoder working memory compete for RAM.
+# ==============================================================================
+
+section "Available memory"
+
+AVAIL_MB=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print int($2/1024)}' || echo 0)
+if [[ "$AVAIL_MB" -gt 0 ]]; then
+  if [[ "$AVAIL_MB" -lt 1500 ]]; then
+    warn "Low available RAM: ${AVAIL_MB} MB -- pipeline buffers may cause swapping"
+  elif [[ "$AVAIL_MB" -lt 3000 ]]; then
+    warn "Available RAM: ${AVAIL_MB} MB -- acceptable but monitor for pressure"
+  else
+    ok "Available RAM: ${AVAIL_MB} MB"
+  fi
+fi
+
+
+# ==============================================================================
+# SUMMARY
+# ==============================================================================
+
+echo ""
+echo "======================================================"
+if [[ "$FAILURES" -gt 0 ]]; then
+  echo "  RESULT: ${FAILURES} failure(s), ${WARNINGS} warning(s)"
+  echo "  Fix failures before running the pipeline."
+elif [[ "$WARNINGS" -gt 0 ]]; then
+  echo "  RESULT: 0 failures, ${WARNINGS} warning(s)"
+  echo "  Warnings do not block launch but may affect performance."
+else
+  echo "  RESULT: All checks passed."
+fi
+echo "======================================================"
+echo ""
+
+[[ "$FAILURES" -eq 0 ]]
