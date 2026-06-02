@@ -409,7 +409,7 @@ case "$OUTPUT_MODE" in
     #   protocols=tcp  : force TCP transport. UDP can lose packets causing
     #                    decoder errors; TCP is reliable and preferred for LAN.
     #                    For WAN with firewalled UDP, TCP is also the safe choice.
-    OUTPUT_SEGMENT="${RTP_ELEMENT} ! rtspclientsink location=${RTSP_URL} protocols=tcp"
+    OUTPUT_SEGMENT="${RTP_ELEMENT} ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
     ;;
 esac
 
@@ -521,7 +521,11 @@ echo ""
 # and the stream ends cleanly rather than cutting off mid-GOP.
 # Note: intentionally NOT using exec here so the shell process stays alive,
 # which allows the EXIT trap above to stop MediaMTX when the pipeline ends.
-# "$PIPELINE" quoted: passes the full pipeline as one argument, preventing
-# the shell from splitting it and gst-launch's lexer from misidentifying
-# the rtsp:// URI inside location= as a standalone URI element.
-gst-launch-1.0 -e "$PIPELINE"
+# $PIPELINE is unquoted so the shell word-splits it into the multiple tokens
+# gst-launch-1.0 expects. Passing the whole pipeline as one quoted string
+# triggers gst-launch URI detection on some JetPack versions, causing a
+# spurious gst_element_make_from_uri assertion and a follow-on syntax error.
+# location="rtsp://..." in OUTPUT_SEGMENT is already quoted so it survives
+# word-splitting as one token even in RTSP mode.
+# shellcheck disable=SC2086
+gst-launch-1.0 -e $PIPELINE
