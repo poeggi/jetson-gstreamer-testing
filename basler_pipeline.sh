@@ -203,6 +203,65 @@ fi
 
 
 # ==============================================================================
+# MEDIAMTX -- start if needed, stop on exit (RTSP mode only)
+# ==============================================================================
+
+MEDIAMTX_PID=""
+MEDIAMTX_WE_STARTED=0
+
+cleanup() {
+  if [[ "$MEDIAMTX_WE_STARTED" -eq 1 && -n "$MEDIAMTX_PID" ]]; then
+    echo ""
+    echo "Stopping MediaMTX (PID ${MEDIAMTX_PID})..."
+    kill "$MEDIAMTX_PID" 2>/dev/null || true
+    wait "$MEDIAMTX_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+find_mediamtx() {
+  for loc in \
+    "$(command -v mediamtx 2>/dev/null || true)" \
+    /usr/local/bin/mediamtx \
+    "${HOME}/mediamtx" \
+    "${SCRIPT_DIR}/mediamtx"; do
+    [[ -n "$loc" && -x "$loc" ]] && echo "$loc" && return 0
+  done
+  return 1
+}
+
+if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
+  if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+    echo "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
+  else
+    MEDIAMTX_BIN=$(find_mediamtx) || {
+      echo "ERROR: MediaMTX not running and binary not found in PATH or common locations." >&2
+      echo "       Download from github.com/bluenviron/mediamtx/releases" >&2
+      exit 1
+    }
+    echo "Starting MediaMTX (${MEDIAMTX_BIN})..."
+    "$MEDIAMTX_BIN" >/dev/null 2>&1 &
+    MEDIAMTX_PID=$!
+    MEDIAMTX_WE_STARTED=1
+
+    READY=0
+    for i in 1 2 3 4 5; do
+      sleep 1
+      if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+        READY=1
+        break
+      fi
+    done
+    [[ "$READY" -eq 0 ]] && {
+      echo "ERROR: MediaMTX failed to start within 5 seconds." >&2
+      exit 1
+    }
+    echo "MediaMTX started (PID ${MEDIAMTX_PID})"
+  fi
+fi
+
+
+# ==============================================================================
 # BUILD ENCODER ELEMENTS
 # ==============================================================================
 
@@ -456,4 +515,6 @@ echo ""
 # Launch.
 # -e sends EOS on SIGINT or SIGTERM so the encoder flushes its internal buffer
 # and the stream ends cleanly rather than cutting off mid-GOP.
-exec gst-launch-1.0 -e ${PIPELINE}
+# Note: intentionally NOT using exec here so the shell process stays alive,
+# which allows the EXIT trap above to stop MediaMTX when the pipeline ends.
+gst-launch-1.0 -e ${PIPELINE}

@@ -77,6 +77,7 @@ check_plugin() {
 
 check_cmd gst-launch-1.0  "sudo apt install gstreamer1.0-tools"
 check_cmd gst-inspect-1.0 "sudo apt install gstreamer1.0-tools"
+check_cmd nc              "sudo apt install netcat-openbsd"
 
 check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
 check_plugin nvvidconv  "re-run JetPack installer"
@@ -104,23 +105,51 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
   esac
   check_plugin rtspclientsink "sudo apt install gstreamer1.0-plugins-bad"
 
-  # Verify the RTSP server is actually reachable before launching the pipeline.
-  # A missing server produces a cryptic gst_element_make_from_uri CRITICAL error
-  # that gives no indication the real problem is a missing RTSP server.
+  # Find the MediaMTX binary. The pipeline script will start it automatically
+  # if not already running, so we verify it is findable and actually starts.
   RTSP_HOST="${RTSP_HOST:-127.0.0.1}"
   RTSP_PORT="${RTSP_PORT:-8554}"
-  if command -v nc >/dev/null 2>&1; then
-    if nc -z -w2 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
-      ok "RTSP server reachable at ${RTSP_HOST}:${RTSP_PORT}"
-    else
-      fail "RTSP server not reachable at ${RTSP_HOST}:${RTSP_PORT}"
-      fail "     Start MediaMTX before running the pipeline:"
-      fail "     ./mediamtx   (download from github.com/bluenviron/mediamtx)"
-      fail "     Or test without a server: ./basler_pipeline.sh --fakesink"
-    fi
+  SCRIPT_DIR_CHECK="$(cd "$(dirname "$0")" && pwd)"
+
+  MEDIAMTX_BIN=""
+  for loc in \
+    "$(command -v mediamtx 2>/dev/null || true)" \
+    /usr/local/bin/mediamtx \
+    "${HOME}/mediamtx" \
+    "${SCRIPT_DIR_CHECK}/mediamtx"; do
+    [[ -n "$loc" && -x "$loc" ]] && { MEDIAMTX_BIN="$loc"; break; }
+  done
+
+  if [[ -z "$MEDIAMTX_BIN" ]]; then
+    fail "mediamtx binary not found in PATH or common locations"
+    fail "     Download for ARM64 from: github.com/bluenviron/mediamtx/releases"
+    fail "     Place in /usr/local/bin/ or alongside these scripts"
   else
-    warn "nc not available -- cannot verify RTSP server is running"
-    warn "     install: sudo apt install netcat-openbsd"
+    ok "mediamtx binary: ${MEDIAMTX_BIN}"
+
+    # If already running, just confirm; otherwise start briefly to verify it works.
+    MEDIAMTX_CHECK_PID=""
+    if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+      ok "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
+    else
+      [[ "$QUIET" -eq 0 ]] && echo "  [....] Starting MediaMTX briefly to verify..."
+      "$MEDIAMTX_BIN" >/dev/null 2>&1 &
+      MEDIAMTX_CHECK_PID=$!
+      STARTED=0
+      for i in 1 2 3 4 5; do
+        sleep 1
+        if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+          STARTED=1; break
+        fi
+      done
+      if [[ "$STARTED" -eq 1 ]]; then
+        ok "MediaMTX starts successfully"
+      else
+        fail "MediaMTX found but did not start within 5 seconds"
+      fi
+      kill "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
+      wait "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
+    fi
   fi
 fi
 
