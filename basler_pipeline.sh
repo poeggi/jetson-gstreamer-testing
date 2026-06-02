@@ -203,6 +203,24 @@ fi
 
 
 # ==============================================================================
+# NVMM CAPABILITY CHECK
+# pylonsrc must advertise NVMM caps so the color capture path places frames
+# directly into GPU memory. Without NVMM, nvvidconv must copy every frame
+# from system RAM into NVMM -- one full-frame DMA per frame, per second.
+# bayer mode always requires one system RAM -> NVMM copy (bayer2rgb outputs
+# system RAM; no NVMM-capable Bayer debayer exists in standard GStreamer).
+# ==============================================================================
+
+if ! gst-inspect-1.0 pylonsrc 2>/dev/null | grep -qi "memory:NVMM"; then
+  echo "ERROR: pylonsrc does not advertise NVMM caps on this system." >&2
+  echo "       Color capture cannot avoid a system RAM -> GPU copy per frame." >&2
+  echo "       Upgrade the pylon GStreamer plugin:" >&2
+  echo "       github.com/basler/gst-plugin-pylon/releases" >&2
+  exit 1
+fi
+
+
+# ==============================================================================
 # MEDIAMTX -- start if needed, stop on exit (RTSP mode only)
 # ==============================================================================
 
@@ -339,10 +357,11 @@ if [[ "$CAPTURE_MODE" == "bayer" ]]; then
   # This is the only standard GStreamer path for Bayer -- no NVMM Bayer
   # support exists in nvvidconv or the NVENC engine.
   #
-  # nvvidconv then performs a single DMA-assisted copy from system RAM into
-  # NVMM (NVBUF_MEM_SURFACE_ARRAY, nvbuf-memory-type=4), converting
-  # RGB -> NV12 using the VIC hardware block.  No CPU involvement past this
-  # point -- all subsequent elements read and write NVMM directly.
+  # nvvidconv performs a single DMA-assisted copy from system RAM into NVMM
+  # (NVBUF_MEM_SURFACE_ARRAY, nvbuf-memory-type=4), converting RGB -> NV12
+  # using the VIC hardware block. This is the one unavoidable system RAM ->
+  # NVMM step in bayer mode: bayer2rgb has no NVMM-capable counterpart in
+  # standard GStreamer. All elements after nvvidconv use NVMM exclusively.
   CAPS_BAYER="video/x-bayer,format=${BAYER_FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
   # Queue parameters used throughout:
   #   max-size-buffers=2   : hold at most 2 frames between stages
@@ -366,15 +385,17 @@ if [[ "$CAPTURE_MODE" == "bayer" ]]; then
     ! identity name=pre-enc silent=true check-imperfect-timestamp=true"
 
 else
-  # --- Color path ---
+  # --- Color path (NVMM direct -- zero system RAM copy) ---
   #
-  # pylonsrc emits video/x-raw,format=BGR (system RAM, 3 bytes/px).
-  # The camera FPGA has already debayered internally; we receive a full
-  # color frame directly, paying higher USB bandwidth but saving CPU time.
-  #
-  # nvvidconv converts BGR -> NV12 and copies into NVMM in one operation.
-  # This is the shortest pipeline path and has no CPU debayer cost.
-  CAPS_SRC="video/x-raw,format=${PIXEL_FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
+  # pylonsrc places each captured frame directly into NVMM: USB DMA writes
+  # into GPU-accessible memory with no system RAM intermediate. The camera
+  # FPGA debayers internally; pylonsrc negotiates a color format in NVMM.
+  # format= is intentionally unconstrained so caps negotiation selects the
+  # best NVMM format pylonsrc supports (BGRA, RGBA, NV12, etc.).
+  # nvvidconv converts that format to NV12 entirely within NVMM via the VIC
+  # hardware block -- no memory copy, format conversion only.
+  # Zero CPU copies between camera capture and NVENC encoder.
+  CAPS_SRC="video/x-raw(memory:NVMM),width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
   Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
   SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
     ! ${CAPS_SRC} \
@@ -502,8 +523,10 @@ echo "  Camera serial  : ${CAMERA_SERIAL:-auto-detect}"
 echo "  Resolution     : ${WIDTH}x${HEIGHT} @ ${FRAMERATE} fps"
 if [[ "$CAPTURE_MODE" == "bayer" ]]; then
   echo "  Capture mode   : BAYER  (${BAYER_FORMAT} -> bayer2rgb -> NV12)"
+  echo "  Memory path    : one system RAM -> NVMM copy (bayer2rgb limitation)"
 else
-  echo "  Capture mode   : COLOR  (${PIXEL_FORMAT} -> NV12)"
+  echo "  Capture mode   : COLOR  (NVMM direct -> NV12)"
+  echo "  Memory path    : zero CPU copies -- USB DMA direct to NVMM"
 fi
 echo "  USB bandwidth  : ~${BW_LABEL}"
 echo "  Encoder        : ${ENCODER^^}  ${BITRATE} bps  $([ "$CONTROL_RATE" = "1" ] && echo CBR || echo VBR)"

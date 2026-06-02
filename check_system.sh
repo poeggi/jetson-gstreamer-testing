@@ -80,6 +80,25 @@ check_cmd gst-inspect-1.0 "sudo apt install gstreamer1.0-tools"
 check_cmd nc              "sudo apt install netcat-openbsd"
 
 check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
+
+# NVMM support check -- mandatory for zero-copy color capture.
+# Basler pylon GStreamer plugin >= 2.x advertises video/x-raw(memory:NVMM)
+# when built against the Jetson CUDA/NVMM headers. Without this, the color
+# capture path must copy every frame from system RAM into GPU memory via
+# nvvidconv (one full-frame DMA per frame). bayer mode still requires one
+# system RAM -> NVMM copy regardless (bayer2rgb has no NVMM counterpart).
+_PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
+if [[ -n "$_PYLON_CAPS" ]]; then
+  if echo "$_PYLON_CAPS" | grep -qi "memory:NVMM"; then
+    ok "pylonsrc NVMM caps: zero-copy color capture path available"
+  else
+    fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
+    fail "     Color capture requires a system RAM -> GPU copy per frame."
+    fail "     Upgrade to an NVMM-capable pylon GStreamer plugin:"
+    fail "     github.com/basler/gst-plugin-pylon/releases"
+  fi
+fi
+
 check_plugin nvvidconv  "re-run JetPack installer"
 check_plugin identity   "sudo apt install gstreamer1.0-plugins-base"
 

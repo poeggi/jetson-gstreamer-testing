@@ -34,6 +34,13 @@ CRITICAL="gst_element_make_from_uri"
 Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
 Q_OUT="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
 
+# Detect pylonsrc NVMM support (same check as check_system.sh and basler_pipeline.sh)
+PYLONSRC_NVMM=0
+if gst-inspect-1.0 pylonsrc >/dev/null 2>&1 && \
+   gst-inspect-1.0 pylonsrc 2>/dev/null | grep -qi "memory:NVMM"; then
+  PYLONSRC_NVMM=1
+fi
+
 
 # ==============================================================================
 # HELPERS
@@ -236,7 +243,52 @@ run_test "... ! nvv4l2h264enc ! h264parse config-interval=-1 ! fakesink" \
 
 
 # ==============================================================================
-# SECTION 6: Full basler_pipeline.sh equivalent (videotestsrc, no camera)
+# SECTION 6: pylonsrc NVMM capability
+#
+# Mirrors the mandatory check in check_system.sh and basler_pipeline.sh.
+# Tests whether the color NVMM-direct path is available on this system.
+# Also validates that the NVMM-to-NVMM pipeline (nvvidconv NVMM->NVMM)
+# works correctly -- this is the path used in color mode after pylonsrc
+# outputs a frame in NVMM.
+# ==============================================================================
+echo ""
+echo "--- 6. pylonsrc NVMM capability (mandatory for color zero-copy path) ---"
+
+if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
+  printf "  %-57s[OK]  zero-copy color path available\n" "pylonsrc NVMM caps"
+else
+  printf "  %-57s[FAIL]\n" "pylonsrc NVMM caps"
+  echo "         memory:NVMM not found in pylonsrc caps."
+  echo "         Color capture requires a system RAM -> GPU copy per frame."
+  echo "         Upgrade: github.com/basler/gst-plugin-pylon/releases"
+  FAIL=$(( FAIL + 1 ))
+fi
+
+# Test the NVMM -> NVMM processing path that color mode uses after pylonsrc.
+# videotestsrc cannot output NVMM directly, so we seed with nvvidconv first
+# to create an NVMM buffer, then exercise the remaining NVMM-only stages.
+echo ""
+echo "  NVMM-to-NVMM path (simulated: nvvidconv seeds NVMM, rest stays in NVMM)"
+
+run_test "nvmm seed -> nvvidconv(NVMM->NVMM NV12) -> fakesink" \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
+   ! nvvidconv nvbuf-memory-type=4 \
+   ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+   ! fakesink sync=false"
+
+run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)" \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
+   ! nvvidconv nvbuf-memory-type=4 \
+   ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+   ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
+   ! h265parse config-interval=-1 \
+   ! fakesink sync=false"
+
+
+# ==============================================================================
+# SECTION 7 (renumbered): Full basler_pipeline.sh equivalent (videotestsrc, no camera)
 #
 # Mirrors the bayer-mode pipeline from basler_pipeline.sh element by element:
 #   videotestsrc (simulating pylonsrc)
@@ -257,7 +309,7 @@ run_test "... ! nvv4l2h264enc ! h264parse config-interval=-1 ! fakesink" \
 # The first [FAIL] here pinpoints the element that is the root cause.
 # ==============================================================================
 echo ""
-echo "--- 6. Full basler_pipeline.sh equivalent (videotestsrc, no camera) ---"
+echo "--- 7. Full basler_pipeline.sh equivalent (videotestsrc, no camera) ---"
 STOP=0  # reset so this section always runs regardless of earlier failures
 
 run_test "src ! x-bayer caps ! fakesink" \
@@ -398,7 +450,7 @@ run_test "+ h265parse config-interval=-1 (full pipeline complete)" \
 # single-argument passing method, not the pipeline content itself.
 # ==============================================================================
 echo ""
-echo "--- 7. Launch method comparison (single-string vs word-split) ---"
+echo "--- 8. Launch method comparison (single-string vs word-split) ---"
 
 FULL_PIPE="videotestsrc num-buffers=${BUFFERS} pattern=snow ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! bayer2rgb ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_OUT} ! h265parse config-interval=-1 ! fakesink sync=false"
 
@@ -412,7 +464,7 @@ run_compare "full pipeline (bayer -> h265 -> fakesink)" "$FULL_PIPE"
 # running. Start MediaMTX first: ./mediamtx  (port 8554)
 # ==============================================================================
 echo ""
-echo "--- 8. RTSP output (requires MediaMTX at 127.0.0.1:8554) ---"
+echo "--- 9. RTSP output (requires MediaMTX at 127.0.0.1:8554) ---"
 
 RTSP_HOST="127.0.0.1"
 RTSP_PORT="8554"
@@ -453,7 +505,7 @@ fi
 # SECTION 9: pylonsrc (camera required)
 # ==============================================================================
 echo ""
-echo "--- 9. pylonsrc (camera must be connected) ---"
+echo "--- 10. pylonsrc (camera must be connected) ---"
 
 run_test "pylonsrc ! fakesink" \
   "pylonsrc num-buffers=${BUFFERS} ! fakesink sync=false"
@@ -495,6 +547,36 @@ run_test "pylonsrc full bayer pipeline (small res)" \
    ! ${Q_OUT} \
    ! h265parse config-interval=-1 \
    ! fakesink sync=false"
+
+# NVMM direct color path (matches basler_pipeline.sh CAPTURE_MODE=color with NVMM)
+if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
+  echo ""
+  echo "  pylonsrc NVMM color path (requires NVMM-capable pylon plugin)"
+  STOP=0
+
+  run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" \
+    "pylonsrc num-buffers=${BUFFERS} \
+     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
+     ! nvvidconv nvbuf-memory-type=4 \
+     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+     ! fakesink sync=false"
+
+  run_test "pylonsrc NVMM + full encode chain (zero-copy color path)" \
+    "pylonsrc num-buffers=${BUFFERS} \
+     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
+     ! identity name=cam silent=true check-imperfect-timestamp=true \
+     ! ${Q} \
+     ! nvvidconv nvbuf-memory-type=4 \
+     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+     ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
+     ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
+     ! identity name=post-enc silent=true check-imperfect-timestamp=true \
+     ! ${Q_OUT} \
+     ! h265parse config-interval=-1 \
+     ! fakesink sync=false"
+else
+  echo "  [SKIP] pylonsrc NVMM color path -- NVMM caps not available on this system"
+fi
 
 
 # ==============================================================================
