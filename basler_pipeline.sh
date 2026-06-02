@@ -356,13 +356,13 @@ if [[ "$CAPTURE_MODE" == "bayer" ]]; then
   # allowing stages to run in parallel rather than sequentially.
   Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
   SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
-    ! \"${CAPS_BAYER}\" \
+    ! ${CAPS_BAYER} \
     ! identity name=cam     silent=true check-imperfect-timestamp=true \
     ! ${Q} \
     ! bayer2rgb \
     ! ${Q} \
     ! nvvidconv nvbuf-memory-type=4 \
-    ! \"${CAPS_NVMM}\" \
+    ! ${CAPS_NVMM} \
     ! identity name=pre-enc silent=true check-imperfect-timestamp=true"
 
 else
@@ -377,11 +377,11 @@ else
   CAPS_SRC="video/x-raw,format=${PIXEL_FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
   Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
   SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
-    ! \"${CAPS_SRC}\" \
+    ! ${CAPS_SRC} \
     ! identity name=cam     silent=true check-imperfect-timestamp=true \
     ! ${Q} \
     ! nvvidconv nvbuf-memory-type=4 \
-    ! \"${CAPS_NVMM}\" \
+    ! ${CAPS_NVMM} \
     ! identity name=pre-enc silent=true check-imperfect-timestamp=true"
 fi
 
