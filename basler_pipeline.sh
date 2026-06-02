@@ -44,24 +44,6 @@ set -euo pipefail
 
 
 # ==============================================================================
-# ARGUMENT PARSING
-# ==============================================================================
-
-for arg in "$@"; do
-  case "$arg" in
-    --fakesink)
-      OUTPUT_MODE="fakesink"
-      ;;
-    *)
-      echo "ERROR: Unknown argument: $arg"
-      echo "Usage: $0 [--fakesink]"
-      exit 1
-      ;;
-  esac
-done
-
-
-# ==============================================================================
 # CONFIGURATION
 # Defaults target: a2A4096-30ucPRO at full resolution, 25 fps, USB 3.1 Gen1.
 # See README.md for detailed bandwidth and bitrate tables before changing these.
@@ -169,6 +151,24 @@ OUTPUT_MODE="rtsp"
 RTSP_HOST="127.0.0.1"
 RTSP_PORT="8554"
 RTSP_PATH="/stream"
+
+
+# ==============================================================================
+# ARGUMENT PARSING -- overrides configuration defaults above
+# ==============================================================================
+
+for arg in "$@"; do
+  case "$arg" in
+    --fakesink)
+      OUTPUT_MODE="fakesink"
+      ;;
+    *)
+      echo "ERROR: Unknown argument: $arg"
+      echo "Usage: $0 [--fakesink]"
+      exit 1
+      ;;
+  esac
+done
 
 
 # ==============================================================================

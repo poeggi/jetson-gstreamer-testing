@@ -103,6 +103,25 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     h265) check_plugin rtph265pay "sudo apt install gstreamer1.0-plugins-good" ;;
   esac
   check_plugin rtspclientsink "sudo apt install gstreamer1.0-plugins-bad"
+
+  # Verify the RTSP server is actually reachable before launching the pipeline.
+  # A missing server produces a cryptic gst_element_make_from_uri CRITICAL error
+  # that gives no indication the real problem is a missing RTSP server.
+  RTSP_HOST="${RTSP_HOST:-127.0.0.1}"
+  RTSP_PORT="${RTSP_PORT:-8554}"
+  if command -v nc >/dev/null 2>&1; then
+    if nc -z -w2 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+      ok "RTSP server reachable at ${RTSP_HOST}:${RTSP_PORT}"
+    else
+      fail "RTSP server not reachable at ${RTSP_HOST}:${RTSP_PORT}"
+      fail "     Start MediaMTX before running the pipeline:"
+      fail "     ./mediamtx   (download from github.com/bluenviron/mediamtx)"
+      fail "     Or test without a server: ./basler_pipeline.sh --fakesink"
+    fi
+  else
+    warn "nc not available -- cannot verify RTSP server is running"
+    warn "     install: sudo apt install netcat-openbsd"
+  fi
 fi
 
 
