@@ -174,15 +174,20 @@ fi
 
 
 # ==============================================================================
-# 2 - USB BUFFER MEMORY
+# 2 - USB BUFFER MEMORY AND AUTOSUSPEND
 # usbfs_memory_mb caps the RAM the USB subsystem can pin for DMA buffers.
 # The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
 # At 12 MP BayerRG8: 10 x 12.3 MB = 123 MB minimum. 256 MB gives 2x headroom
 # for a single camera. Scale to 512 MB if running two cameras on one host.
 # The kernel default of 16 MB causes immediate frame drops at this resolution.
+#
+# USB autosuspend suspends USB devices after an idle period. A streaming camera
+# is never truly idle between frames, but some host controllers still trigger
+# suspend during driver init or brief timing gaps, causing intermittent latency
+# spikes. Must be disabled globally for continuous camera streaming.
 # ==============================================================================
 
-section "USB buffer memory"
+section "USB buffer memory and autosuspend"
 
 USB_MEM_FILE="/sys/module/usbcore/parameters/usbfs_memory_mb"
 USB_MEM_MIN=256
@@ -198,6 +203,21 @@ if [[ -f "$USB_MEM_FILE" ]]; then
   fi
 else
   warn "Cannot read ${USB_MEM_FILE} -- usbcore module may not be loaded"
+fi
+
+USB_AS_FILE="/sys/module/usbcore/parameters/autosuspend"
+if [[ -f "$USB_AS_FILE" ]]; then
+  USB_AS=$(cat "$USB_AS_FILE")
+  if [[ "$USB_AS" -lt 0 ]]; then
+    ok "USB autosuspend: disabled (autosuspend=${USB_AS})"
+  else
+    warn "USB autosuspend: enabled (delay=${USB_AS} s) -- intermittent latency spikes"
+    warn "     Disable now  : sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
+    warn "     Persist      : add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX"
+    warn "                    in /etc/default/grub, then sudo update-grub"
+  fi
+else
+  warn "Cannot read ${USB_AS_FILE} -- usbcore module may not be loaded"
 fi
 
 
@@ -399,11 +419,20 @@ fi
 
 
 # ==============================================================================
-# 7 - AVAILABLE MEMORY
+# 7 - MEMORY: AVAILABLE RAM, CMA, AND SWAP
 # Pipeline buffers, NVMM surfaces, and encoder working memory compete for RAM.
+#
+# CMA (Contiguous Memory Allocator): NVMM allocations on Jetson come from CMA.
+# Insufficient CMA causes random NVMM allocation failures after extended runtime
+# as the pool fragments. At 12 MP NV12: ~18 MB per frame; with encoder in-flight
+# buffers the pipeline needs ~200 MB of CMA headroom. 256 MB is the minimum.
+#
+# Swap: even if never actively used, the kernel can trigger page reclaim and
+# compaction accounting under memory pressure, introducing latency spikes in
+# NVMM allocation and DMA operations. Streaming workloads should run swap-free.
 # ==============================================================================
 
-section "Available memory"
+section "Memory: available RAM, CMA, and swap"
 
 AVAIL_MB=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print int($2/1024)}' || echo 0)
 if [[ "$AVAIL_MB" -gt 0 ]]; then
@@ -413,6 +442,81 @@ if [[ "$AVAIL_MB" -gt 0 ]]; then
     warn "Available RAM: ${AVAIL_MB} MB -- acceptable but monitor for pressure"
   else
     ok "Available RAM: ${AVAIL_MB} MB"
+  fi
+fi
+
+CMA_KB=$(grep "^CmaTotal:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+if [[ "$CMA_KB" -gt 0 ]]; then
+  CMA_MB=$(( CMA_KB / 1024 ))
+  if [[ "$CMA_MB" -lt 128 ]]; then
+    fail "CmaTotal: ${CMA_MB} MB -- too small for 12 MP NVMM pipeline (minimum 256 MB)"
+    fail "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub"
+    fail "     or to the device tree bootargs, then reboot."
+  elif [[ "$CMA_MB" -lt 256 ]]; then
+    warn "CmaTotal: ${CMA_MB} MB -- below recommended 256 MB; NVMM alloc may fail under load"
+    warn "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub, then reboot."
+  else
+    ok "CmaTotal: ${CMA_MB} MB"
+  fi
+else
+  warn "Cannot read CmaTotal from /proc/meminfo -- kernel may lack CMA support"
+fi
+
+SWAP_KB=$(grep "^SwapTotal:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+if [[ "$SWAP_KB" -eq 0 ]]; then
+  ok "Swap: not configured"
+else
+  SWAP_MB=$(( SWAP_KB / 1024 ))
+  SWAP_FREE_KB=$(grep "^SwapFree:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+  SWAP_USED_MB=$(( (SWAP_KB - SWAP_FREE_KB) / 1024 ))
+  warn "Swap: ${SWAP_MB} MB configured, ${SWAP_USED_MB} MB in use"
+  warn "     Swap causes latency spikes in NVMM allocation and DMA under pressure."
+  warn "     Disable: sudo swapoff -a  (remove from /etc/fstab for persistence)"
+fi
+
+ZRAM_COUNT=$(ls /dev/zram* 2>/dev/null | wc -l || echo 0)
+if [[ "$ZRAM_COUNT" -gt 0 ]]; then
+  warn "zram: ${ZRAM_COUNT} device(s) active -- compressed swap adds CPU overhead under pressure"
+  warn "     Disable: sudo swapoff /dev/zram0  (or systemctl stop zramswap)"
+else
+  ok "zram: not active"
+fi
+
+
+# ==============================================================================
+# 8 - NETWORK SOCKET BUFFERS (RTSP mode only)
+# rtspclientsink sends the H.265 stream over a TCP socket. At 35-62 Mbps
+# (12 MP streaming to high-quality range), the kernel send buffer must be
+# large enough to absorb one full GOP without blocking the pipeline.
+# At 25 fps with IFRAME_INTERVAL=25 (1 GOP/s): peak burst is ~4-8 MB.
+# Linux defaults (wmem_max ~208 KB) are far too small and cause rtspclientsink
+# to block, stalling the encoder queue and eventually dropping frames upstream.
+# ==============================================================================
+
+if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
+  section "Network socket buffers"
+
+  NET_MIN=2097152   # 2 MB minimum; 4 MB recommended for sustained 60 Mbps
+  NET_REC=4194304   # 4 MB
+
+  NET_RMEM=$(cat /proc/sys/net/core/rmem_max 2>/dev/null || echo 0)
+  NET_WMEM=$(cat /proc/sys/net/core/wmem_max 2>/dev/null || echo 0)
+
+  if [[ "$NET_RMEM" -ge "$NET_MIN" ]]; then
+    ok "net.core.rmem_max = $(( NET_RMEM / 1024 )) KB"
+  else
+    warn "net.core.rmem_max = $(( NET_RMEM / 1024 )) KB -- below 2 MB minimum"
+    warn "     Fix now : sudo sysctl -w net.core.rmem_max=${NET_REC}"
+    warn "     Persist : echo 'net.core.rmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
+  fi
+
+  if [[ "$NET_WMEM" -ge "$NET_MIN" ]]; then
+    ok "net.core.wmem_max = $(( NET_WMEM / 1024 )) KB"
+  else
+    warn "net.core.wmem_max = $(( NET_WMEM / 1024 )) KB -- below 2 MB minimum"
+    warn "     rtspclientsink will block the pipeline at bitrates above ~20 Mbps."
+    warn "     Fix now : sudo sysctl -w net.core.wmem_max=${NET_REC}"
+    warn "     Persist : echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
   fi
 fi
 
