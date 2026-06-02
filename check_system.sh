@@ -303,22 +303,50 @@ fi
 
 section "Camera hardware"
 
-# Basler USB vendor ID is 0x2676
+# Basler USB vendor ID is 0x2676.
+# Speed is read from sysfs rather than parsing lsusb -t output.
+# The sysfs 'speed' file reports the negotiated link speed in Mbps:
+#   480   = USB 2.0 High Speed  (far too slow for 12 MP)
+#   5000  = USB 3.1 Gen1 SuperSpeed  (correct)
+#   10000 = USB 3.1 Gen2 SuperSpeed+ (correct)
 BASLER_VID="2676"
-if command -v lsusb >/dev/null 2>&1; then
-  BASLER_LINE=$(lsusb 2>/dev/null | grep -i "ID ${BASLER_VID}:" | head -1 || true)
-  if [[ -n "$BASLER_LINE" ]]; then
-    ok "Basler camera detected: $BASLER_LINE"
-    info "Verify USB speed (must be 5000M = USB3 SuperSpeed):"
-    info "     lsusb -t  -- look for '5000M' on the Basler device line"
-  else
-    warn "No Basler camera detected (USB vendor ID ${BASLER_VID} not found)"
-    warn "     Check: lsusb | grep ${BASLER_VID}"
-    warn "     Verify the camera is powered on and the USB cable is seated"
+BASLER_DEV_PATH=""
+
+for DEV_PATH in /sys/bus/usb/devices/*/; do
+  [[ -f "${DEV_PATH}idVendor" ]] || continue
+  VENDOR=$(cat "${DEV_PATH}idVendor" 2>/dev/null || echo "")
+  if [[ "$VENDOR" == "$BASLER_VID" ]]; then
+    BASLER_DEV_PATH="$DEV_PATH"
+    break
   fi
+done
+
+if [[ -n "$BASLER_DEV_PATH" ]]; then
+  PRODUCT=$(cat "${BASLER_DEV_PATH}product" 2>/dev/null || echo "unknown model")
+  SPEED=$(cat   "${BASLER_DEV_PATH}speed"   2>/dev/null || echo "unknown")
+  ok "Basler camera detected: ${PRODUCT}"
+
+  case "$SPEED" in
+    5000)
+      ok "USB connection speed: ${SPEED} Mbps -- USB 3.1 Gen1 SuperSpeed (correct)"
+      ;;
+    10000)
+      ok "USB connection speed: ${SPEED} Mbps -- USB 3.1 Gen2 SuperSpeed+ (correct)"
+      ;;
+    480)
+      fail "USB connection speed: ${SPEED} Mbps -- USB 2.0 High Speed"
+      fail "     Camera is on a USB 2.0 port or hub. At 12MP/25fps the pipeline"
+      fail "     needs 307 MB/s; USB 2.0 provides ~40 MB/s. Plug directly into"
+      fail "     a USB 3.x blue port on the Jetson carrier board."
+      ;;
+    *)
+      warn "USB connection speed: ${SPEED} Mbps -- expected 5000 or 10000"
+      ;;
+  esac
 else
-  warn "lsusb not available -- cannot detect camera"
-  warn "     Install: sudo apt install usbutils"
+  warn "No Basler camera detected in sysfs (vendor ID ${BASLER_VID})"
+  warn "     Verify camera is powered on and USB cable is firmly seated"
+  warn "     Check: lsusb | grep ${BASLER_VID}"
 fi
 
 
