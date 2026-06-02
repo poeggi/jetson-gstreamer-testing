@@ -281,14 +281,16 @@ case "$ENCODER" in
     #   config-interval=-1 : re-emit SPS/PPS in-band with every IDR; ensures
     #                        any element downstream (rtspclientsink, file mux)
     #                        always has the codec parameters available
+    # num-Bframes defaults to 0 on Jetson NVENC -- not set explicitly because
+    # the property name varies across JetPack versions and an unknown property
+    # causes silent pipeline construction failure.
     ENC_ELEMENT="nvv4l2h264enc \
       bitrate=${BITRATE} \
       control-rate=${CONTROL_RATE} \
       profile=4 \
       iframeinterval=${IFRAME_INTERVAL} \
       insert-sps-pps=1 \
-      maxperf-enable=1 \
-      num-Bframes=0"
+      maxperf-enable=1"
     PARSE_ELEMENT="h264parse config-interval=-1"
     RTP_ELEMENT="rtph264pay pt=96 config-interval=-1"
     ;;
@@ -296,14 +298,16 @@ case "$ENCODER" in
     # nvv4l2h265enc -- NVENC H.265 hardware encoder
     #   profile=0 : Main Profile (HEVC Tier Main); widely supported
     #   All other parameters same semantics as H.264 encoder above
+    # num-Bframes defaults to 0 on Jetson NVENC -- not set explicitly because
+    # the property name varies across JetPack versions and an unknown property
+    # causes silent pipeline construction failure.
     ENC_ELEMENT="nvv4l2h265enc \
       bitrate=${BITRATE} \
       control-rate=${CONTROL_RATE} \
       profile=0 \
       iframeinterval=${IFRAME_INTERVAL} \
       insert-sps-pps=1 \
-      maxperf-enable=1 \
-      num-Bframes=0"
+      maxperf-enable=1"
     PARSE_ELEMENT="h265parse config-interval=-1"
     RTP_ELEMENT="rtph265pay pt=96 config-interval=-1"
     ;;
@@ -517,4 +521,7 @@ echo ""
 # and the stream ends cleanly rather than cutting off mid-GOP.
 # Note: intentionally NOT using exec here so the shell process stays alive,
 # which allows the EXIT trap above to stop MediaMTX when the pipeline ends.
-gst-launch-1.0 -e ${PIPELINE}
+# "$PIPELINE" quoted: passes the full pipeline as one argument, preventing
+# the shell from splitting it and gst-launch's lexer from misidentifying
+# the rtsp:// URI inside location= as a standalone URI element.
+gst-launch-1.0 -e "$PIPELINE"
