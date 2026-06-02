@@ -273,18 +273,27 @@ fi
 
 section "Jetson power and clock configuration"
 
-# nvpmodel: check for MAXN (mode 0 = all engines at maximum)
+# nvpmodel: 15W is the design target for this pipeline.
+# MAXN is not required -- bayer2rgb at 12MP/25fps uses ~1 A78AE core and
+# NVENC has comfortable headroom even at reduced clocks. Only sub-10W modes
+# are flagged as potentially marginal: the CPU cap there may reduce bayer2rgb
+# throughput enough to cause frame drops at full resolution and frame rate.
 if command -v nvpmodel >/dev/null 2>&1; then
   POWER_LINE=$(nvpmodel -q 2>/dev/null | grep "NV Power Mode" | head -1 || true)
-  if echo "$POWER_LINE" | grep -q "MAXN"; then
+  _PMODE_W=$(echo "$POWER_LINE" | grep -oE '[0-9]+W' | head -1 | tr -d 'W' || echo "")
+
+  if echo "$POWER_LINE" | grep -qi "MAXN"; then
     ok "nvpmodel: $POWER_LINE"
-    info "NOTE: MAXN removes all power limits -- estimated draw 15-25 W."
-    info "      A lower mode (e.g. sudo nvpmodel -m 1, 15 W TDP) may sustain the"
-    info "      pipeline; test under full load before committing to MAXN in production."
+    info "NOTE: MAXN is more than this pipeline requires. 15W is the recommended"
+    info "      production target and sustains 12MP/25fps with comfortable headroom."
+    info "      To switch: sudo nvpmodel -m 1  (saves ~10-15 W continuously)"
+  elif [[ -n "$_PMODE_W" && "$_PMODE_W" -le 10 ]]; then
+    warn "nvpmodel: $POWER_LINE"
+    warn "     ${_PMODE_W}W CPU cap may reduce bayer2rgb throughput at 12MP/25fps."
+    warn "     Color mode (CAPTURE_MODE=color) bypasses CPU debayer and is safe at ${_PMODE_W}W."
+    warn "     For bayer mode consider raising to 15W: sudo nvpmodel -m 1"
   else
-    warn "nvpmodel: ${POWER_LINE:-unknown} -- clock ceilings may stall the pipeline under load"
-    warn "     For full performance: sudo nvpmodel -m 0  (MAXN; adds ~10-15 W)"
-    warn "     Alternatively, verify the pipeline is stable at the current power mode."
+    ok "nvpmodel: $POWER_LINE -- recommended production target for this pipeline"
   fi
 else
   warn "nvpmodel not found -- cannot verify power mode"
