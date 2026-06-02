@@ -161,6 +161,31 @@ case "$ENCODER" in
     ;;
 esac
 
+# NVENC hardware functional test -- separate from plugin presence.
+# The plugin may be installed for forward compatibility while NVENC silicon is
+# absent (e.g. current Orin Nano; future variants may add hardware NVENC).
+# Runs a minimal 64x64 test encode; catches missing hardware at pre-flight
+# rather than letting the pipeline fail mid-stream with a cryptic error.
+_NVENC_ELEM=""
+case "$ENCODER" in
+  h264) _NVENC_ELEM="nvv4l2h264enc" ;;
+  h265) _NVENC_ELEM="nvv4l2h265enc" ;;
+esac
+if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
+  _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=64,height=64,framerate=30/1"
+  if gst-launch-1.0 videotestsrc num-buffers=10 \
+       ! video/x-raw,format=NV12,width=64,height=64,framerate=30/1 \
+       ! nvvidconv nvbuf-memory-type=4 \
+       ! "${_NVENC_CAPS}" \
+       ! "${_NVENC_ELEM}" ! fakesink sync=false >/dev/null 2>&1; then
+    ok "NVENC hardware: ${_NVENC_ELEM} functional (test encode passed)"
+  else
+    fail "NVENC hardware: ${_NVENC_ELEM} plugin present but test encode failed"
+    fail "     NVENC silicon may be absent on this SoM. This pipeline requires"
+    fail "     hardware H.265/H.264 encoding; software cannot sustain 12MP/25fps."
+  fi
+fi
+
 if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
   case "$ENCODER" in
     h264) check_plugin rtph264pay "sudo apt install gstreamer1.0-plugins-good" ;;
@@ -273,25 +298,29 @@ fi
 
 section "Jetson power and clock configuration"
 
-# nvpmodel: 15W is the design target for this pipeline.
-# MAXN is not required -- bayer2rgb at 12MP/25fps uses ~1 A78AE core and
-# NVENC has comfortable headroom even at reduced clocks. Only sub-10W modes
-# are flagged as potentially marginal: the CPU cap there may reduce bayer2rgb
-# throughput enough to cause frame drops at full resolution and frame rate.
+# nvpmodel: 15W is the design target across all supported modules:
+#   Orin NX 8GB, Orin NX 16GB, and future NVENC-capable Orin Nano variants.
+# All have a dedicated 15W mode separate from MAXN. MAXN and MAXN_SUPER
+# draw 20-28W and are not required -- bayer2rgb uses ~1 A78AE core and NVENC
+# has comfortable headroom at reduced clocks. The watt value is parsed from
+# the mode name string (MODE_15W, 7W, etc.); MAXN/MAXN_SUPER are matched by
+# name first. Modes at or below 10W (NX 10W, Nano 7W) are flagged as
+# potentially marginal for sustained bayer capture at full resolution/fps.
+
 if command -v nvpmodel >/dev/null 2>&1; then
   POWER_LINE=$(nvpmodel -q 2>/dev/null | grep "NV Power Mode" | head -1 || true)
   _PMODE_W=$(echo "$POWER_LINE" | grep -oE '[0-9]+W' | head -1 | tr -d 'W' || echo "")
 
   if echo "$POWER_LINE" | grep -qi "MAXN"; then
     ok "nvpmodel: $POWER_LINE"
-    info "NOTE: MAXN is more than this pipeline requires. 15W is the recommended"
-    info "      production target and sustains 12MP/25fps with comfortable headroom."
-    info "      To switch: sudo nvpmodel -m 1  (saves ~10-15 W continuously)"
+    info "NOTE: MAXN/MAXN_SUPER (~20-28W) is more than this pipeline requires."
+    info "      15W sustains 12MP/25fps with headroom on all supported modules."
+    info "      List available modes: sudo nvpmodel --list-modes"
   elif [[ -n "$_PMODE_W" && "$_PMODE_W" -le 10 ]]; then
     warn "nvpmodel: $POWER_LINE"
-    warn "     ${_PMODE_W}W CPU cap may reduce bayer2rgb throughput at 12MP/25fps."
+    warn "     ${_PMODE_W}W may be marginal for bayer2rgb at 12MP/25fps."
     warn "     Color mode (CAPTURE_MODE=color) bypasses CPU debayer and is safe at ${_PMODE_W}W."
-    warn "     For bayer mode consider raising to 15W: sudo nvpmodel -m 1"
+    warn "     For bayer mode consider the 15W mode: sudo nvpmodel --list-modes"
   else
     ok "nvpmodel: $POWER_LINE -- recommended production target for this pipeline"
   fi
