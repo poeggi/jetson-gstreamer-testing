@@ -186,6 +186,23 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (25 at 25 fps -- the
 | YCbCr422_8      | video/x-raw,format=YUY2       | n/a       | OK direct | pylonsrc->nvvidconv->enc   |
 | GRAY8 (mono)    | video/x-raw,format=GRAY8      | n/a       | OK direct | pylonsrc->nvvidconv->enc   |
 
+**USB buffer memory (`usbfs_memory_mb`):** The Linux kernel default is 16 MB.
+The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
+At 12 MP BayerRG8 that is 10 x 12.3 MB = ~123 MB minimum. Set to **256 MB**
+for a single camera (2x headroom), or 512 MB for two cameras on one host.
+Basler's blanket recommendation of 1000 MB is sized for multi-camera setups
+and is excessive for a single camera.
+
+```bash
+# Apply now (no reboot needed):
+sudo sh -c 'echo 256 > /sys/module/usbcore/parameters/usbfs_memory_mb'
+
+# Persist across reboots -- add to /etc/rc.local before 'exit 0':
+echo 256 > /sys/module/usbcore/parameters/usbfs_memory_mb
+```
+
+---
+
 **nvvidconv:** Input must be in system RAM (`video/x-raw` without NVMM qualifier).
 Output is placed in NVMM (`video/x-raw(memory:NVMM)`) using `nvbuf-memory-type=4`
 (NVBUF_MEM_SURFACE_ARRAY -- the correct Jetson surface type). All elements after

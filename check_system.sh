@@ -108,19 +108,23 @@ fi
 
 # ==============================================================================
 # 2 - USB BUFFER MEMORY
-# Basler cameras require a large USB transfer buffer. The kernel default of
-# 16 MB is far too small for a 12 MP camera at 25 fps (~307 MB/s).
-# Without this the camera will drop frames immediately.
+# usbfs_memory_mb caps the RAM the USB subsystem can pin for DMA buffers.
+# The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
+# At 12 MP BayerRG8: 10 x 12.3 MB = 123 MB minimum. 256 MB gives 2x headroom
+# for a single camera. Scale to 512 MB if running two cameras on one host.
+# The kernel default of 16 MB causes immediate frame drops at this resolution.
 # ==============================================================================
 
 section "USB buffer memory"
 
 USB_MEM_FILE="/sys/module/usbcore/parameters/usbfs_memory_mb"
+USB_MEM_MIN=256
+
 if [[ -f "$USB_MEM_FILE" ]]; then
   USB_MEM=$(cat "$USB_MEM_FILE")
-  if [[ "$USB_MEM" -lt 1000 ]]; then
-    warn "usbfs_memory_mb = ${USB_MEM} MB -- too low for 12 MP camera (need >= 1000)"
-    warn "     Fix now : sudo sh -c 'echo 1000 > ${USB_MEM_FILE}'"
+  if [[ "$USB_MEM" -lt "$USB_MEM_MIN" ]]; then
+    warn "usbfs_memory_mb = ${USB_MEM} MB -- too low (need >= ${USB_MEM_MIN} MB for single 12 MP camera)"
+    warn "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
     warn "     Persist : add the above line to /etc/rc.local before 'exit 0'"
   else
     ok "usbfs_memory_mb = ${USB_MEM} MB"
