@@ -54,6 +54,51 @@ fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
 
 
 # ==============================================================================
+# 0 - PLATFORM AND PLUGIN VERSIONS
+# Informational only -- no failures or warnings raised here. Provides context
+# for interpreting all checks that follow, and for bug reports.
+# ==============================================================================
+
+# Compute pylonsrc caps once here; reused in section 1 NVMM check and in
+# the version display below, avoiding a second gst-inspect-1.0 invocation.
+_PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
+
+section "Platform and plugin versions"
+
+# L4T / JetPack version
+_L4T_FILE="/etc/nv_tegra_release"
+if [[ -f "$_L4T_FILE" ]]; then
+  _L4T_LINE=$(head -1 "$_L4T_FILE")
+  _L4T_MAJ=$(echo "$_L4T_LINE" | sed -n 's/# R\([0-9]*\) .*/\1/p')
+  _L4T_REV=$(echo "$_L4T_LINE" | sed -n 's/.*REVISION: \([^,]*\).*/\1/p')
+  _L4T_DATE=$(echo "$_L4T_LINE" | sed -n 's/.*DATE: //p')
+  case "${_L4T_MAJ:-0}" in
+    35) _JP="JetPack 5.x" ;;
+    36) _JP="JetPack 6.x" ;;
+    *)  _JP="JetPack version unknown" ;;
+  esac
+  info "L4T: R${_L4T_MAJ}.${_L4T_REV}  (${_JP})"
+  info "     Built: ${_L4T_DATE}"
+else
+  info "L4T: /etc/nv_tegra_release not found"
+fi
+
+# GStreamer version
+_GST_VER=$(gst-launch-1.0 --version 2>/dev/null | sed -n 's/^GStreamer //p' | head -1 || true)
+info "GStreamer: ${_GST_VER:-not found}"
+
+# Basler pylon GStreamer plugin version + NVMM status (derived from _PYLON_CAPS)
+if [[ -n "$_PYLON_CAPS" ]]; then
+  _PYLON_VER=$(echo "$_PYLON_CAPS" | awk '/^  Version/{print $2; exit}')
+  _NVMM="not supported"
+  echo "$_PYLON_CAPS" | grep -qi "memory:NVMM" && _NVMM="supported"
+  info "Basler pylon plugin: ${_PYLON_VER:-unknown}  |  NVMM: ${_NVMM}"
+else
+  info "Basler pylon plugin: not found or failed to load"
+fi
+
+
+# ==============================================================================
 # 1 - GSTREAMER DEPENDENCIES
 # ==============================================================================
 
@@ -87,7 +132,6 @@ check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.co
 # capture path must copy every frame from system RAM into GPU memory via
 # nvvidconv (one full-frame DMA per frame). bayer mode still requires one
 # system RAM -> NVMM copy regardless (bayer2rgb has no NVMM counterpart).
-_PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
 if [[ -n "$_PYLON_CAPS" ]]; then
   if echo "$_PYLON_CAPS" | grep -qi "memory:NVMM"; then
     ok "pylonsrc NVMM caps: zero-copy color capture path available"
@@ -234,9 +278,13 @@ if command -v nvpmodel >/dev/null 2>&1; then
   POWER_LINE=$(nvpmodel -q 2>/dev/null | grep "NV Power Mode" | head -1 || true)
   if echo "$POWER_LINE" | grep -q "MAXN"; then
     ok "nvpmodel: $POWER_LINE"
+    info "NOTE: MAXN removes all power limits -- estimated draw 15-25 W."
+    info "      A lower mode (e.g. sudo nvpmodel -m 1, 15 W TDP) may sustain the"
+    info "      pipeline; test under full load before committing to MAXN in production."
   else
-    warn "nvpmodel: $POWER_LINE"
-    warn "     Fix: sudo nvpmodel -m 0  (MAXN = unrestricted performance)"
+    warn "nvpmodel: ${POWER_LINE:-unknown} -- clock ceilings may stall the pipeline under load"
+    warn "     For full performance: sudo nvpmodel -m 0  (MAXN; adds ~10-15 W)"
+    warn "     Alternatively, verify the pipeline is stable at the current power mode."
   fi
 else
   warn "nvpmodel not found -- cannot verify power mode"
@@ -259,10 +307,14 @@ if [[ -f "$GOV_FILE" ]]; then
     [[ "$GOV_MIN" -eq "$GOV_MAX" ]] && PINNED=1
   fi
   if [[ "$GOV" == "performance" || "$PINNED" -eq 1 ]]; then
-    ok "CPU governor: ${GOV}$([ "$PINNED" -eq 1 ] && echo " (clocks pinned at max -- jetson_clocks active)")"
+    ok "CPU governor: ${GOV}$([ "$PINNED" -eq 1 ] && echo " (clocks pinned -- jetson_clocks active)")"
+    info "NOTE: Pinned clocks prevent frequency scaling in the ~35 ms idle gaps"
+    info "      between frames (~3-5 W extra continuously). The schedutil governor"
+    info "      often scales up fast enough -- worth testing without jetson_clocks."
   else
-    warn "CPU governor: ${GOV} -- clocks are not pinned and may scale down"
-    warn "     Fix: sudo jetson_clocks"
+    warn "CPU governor: ${GOV} -- clocks may scale down between frames"
+    warn "     Slow scale-up on frame arrival can stall the pipeline under load."
+    warn "     Fix: sudo jetson_clocks  (pins all clocks at max; adds ~3-5 W)"
   fi
 else
   warn "Cannot read CPU governor from ${GOV_FILE}"
@@ -283,6 +335,67 @@ if [[ -f "$CUR_FILE" && -f "$MAX_FILE" ]]; then
     warn "     Fix: sudo jetson_clocks"
   else
     ok "CPU0 clock: ${CUR_GHZ} GHz (${PCT}% of ${MAX_GHZ} GHz max)"
+  fi
+fi
+
+# CPU idle C-states -- deepest state only.
+# On Jetson Orin NX the deepest C-state (C7, core power-gate) has a 5 ms wake
+# latency. At 25fps (40 ms frame time) this consumes 12.5% of the frame budget
+# and causes measurable scheduling jitter when multiple pipeline threads wake
+# simultaneously on a frame arrival. Only this deepest state needs disabling;
+# WFI (state0) and any intermediate states are negligible and should remain
+# enabled to save power in the idle gaps between frames.
+# Note: jetson_clocks does NOT disable C-states -- this is a separate action.
+
+CSTATE_DIR="/sys/devices/system/cpu/cpu0/cpuidle"
+if [[ -d "$CSTATE_DIR" ]]; then
+  DEEP_LATENCY=0
+  DEEP_IDX=-1
+  DEEP_NAME=""
+  DEEP_DISABLED=0
+  STATE_COUNT=0
+
+  for STATE_PATH in "${CSTATE_DIR}"/state*/; do
+    [[ -f "${STATE_PATH}latency" ]] || continue
+    _LAT=$(cat "${STATE_PATH}latency" 2>/dev/null || echo 0)
+    if [[ "$_LAT" -gt "$DEEP_LATENCY" ]]; then
+      DEEP_LATENCY="$_LAT"
+      DEEP_IDX=$(basename "$STATE_PATH" | tr -d 'state')
+      DEEP_NAME=$(cat "${STATE_PATH}name" 2>/dev/null || echo "unknown")
+      DEEP_DISABLED=$(cat "${STATE_PATH}disable" 2>/dev/null || echo 0)
+    fi
+    STATE_COUNT=$(( STATE_COUNT + 1 ))
+  done
+
+  if [[ "$DEEP_IDX" -ge 0 && "$STATE_COUNT" -gt 1 ]]; then
+    _DIS="for f in /sys/devices/system/cpu/cpu*/cpuidle/state${DEEP_IDX}/disable; do echo 1 | sudo tee \$f >/dev/null; done"
+    _ENA="for f in /sys/devices/system/cpu/cpu*/cpuidle/state${DEEP_IDX}/disable; do echo 0 | sudo tee \$f >/dev/null; done"
+
+    if [[ "$DEEP_LATENCY" -ge 2000 ]]; then
+      if [[ "$DEEP_DISABLED" -eq 1 ]]; then
+        ok "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us) disabled -- good for low jitter"
+        info "NOTE: Keeping ${DEEP_NAME} disabled costs some idle power. Shallower C-states"
+        info "      remain enabled and continue to save power between frames. Re-enable"
+        info "      if power budget is the priority: ${_ENA}"
+      else
+        warn "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us) is enabled"
+        warn "     ${DEEP_LATENCY} us wake latency = $(( DEEP_LATENCY / 1000 )) ms per event;"
+        warn "     at 25fps this is $(( DEEP_LATENCY * 100 / 40000 ))% of the frame budget per wake."
+        warn "     Disable only this state; WFI and shallower states stay on to save power."
+        warn "     Fix: ${_DIS}"
+      fi
+    elif [[ "$DEEP_LATENCY" -ge 500 ]]; then
+      if [[ "$DEEP_DISABLED" -eq 1 ]]; then
+        ok "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us) disabled"
+        info "NOTE: ${DEEP_LATENCY} us is borderline. Re-enable if power is the priority:"
+        info "      ${_ENA}"
+      else
+        info "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us): borderline for 25fps"
+        info "     Disable if frame jitter is observed: ${_DIS}"
+      fi
+    else
+      ok "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us): acceptable latency for 25fps"
+    fi
   fi
 fi
 
