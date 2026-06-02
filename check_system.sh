@@ -155,14 +155,26 @@ else
   warn "nvpmodel not found -- cannot verify power mode"
 fi
 
-# CPU frequency governor (should be 'performance', set by jetson_clocks)
+# CPU frequency governor.
+# jetson_clocks does NOT change the governor name -- it pins the clock by
+# setting scaling_min_freq = scaling_max_freq, leaving the governor as
+# 'schedutil'. Both 'performance' and a pinned 'schedutil' are acceptable.
+# Only flag governors that can actually reduce the clock (e.g. powersave).
 GOV_FILE="/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
+MIN_FILE="/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq"
+MAX_FILE_GOV="/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
 if [[ -f "$GOV_FILE" ]]; then
   GOV=$(cat "$GOV_FILE")
-  if [[ "$GOV" == "performance" ]]; then
-    ok "CPU governor: performance"
+  PINNED=0
+  if [[ -f "$MIN_FILE" && -f "$MAX_FILE_GOV" ]]; then
+    GOV_MIN=$(cat "$MIN_FILE")
+    GOV_MAX=$(cat "$MAX_FILE_GOV")
+    [[ "$GOV_MIN" -eq "$GOV_MAX" ]] && PINNED=1
+  fi
+  if [[ "$GOV" == "performance" || "$PINNED" -eq 1 ]]; then
+    ok "CPU governor: ${GOV}$([ "$PINNED" -eq 1 ] && echo " (clocks pinned at max -- jetson_clocks active)")"
   else
-    warn "CPU governor: ${GOV}  (expected: performance)"
+    warn "CPU governor: ${GOV} -- clocks are not pinned and may scale down"
     warn "     Fix: sudo jetson_clocks"
   fi
 else
