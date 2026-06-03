@@ -3,17 +3,17 @@
 # diagnose_pipeline.sh
 #
 # Systematically tests each GStreamer pipeline stage on Jetson Orin NX,
-# adding one element at a time to identify exactly which element triggers
-# the gst_element_make_from_uri CRITICAL assertion or a syntax error.
+# adding one element at a time to identify exactly which element fails.
+# Mirrors basler_pipeline.sh: same elements, same properties, same defaults
+# (color NVMM capture, H.265, fakesink output).
 #
-# Mirrors basler_pipeline.sh exactly: same elements, same properties, same
-# default mode (color NVMM capture, H.265, fakesink).
+# Section 7 uses videotestsrc as source. videotestsrc outputs system RAM
+# so nvvidconv performs RAM->NVMM in addition to format conversion; in
+# production pylonsrc delivers NVMM directly and nvvidconv is format-only.
+# Section 8 tests the real pylonsrc source (camera must be connected).
 #
-# Must be run on the Jetson itself. Camera must be connected for sections
-# marked "(camera required)".
-#
-# Usage:
-#   ./diagnose_pipeline.sh
+# Must be run on the Jetson itself.
+# Usage: ./diagnose_pipeline.sh
 # ==============================================================================
 
 set -uo pipefail
