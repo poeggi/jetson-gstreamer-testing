@@ -428,7 +428,7 @@ run_test "+ rtph265pay pt=96 config-interval=-1 (full chain to RTP payloader)" \
 echo ""
 echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test) ---"
 
-# CRITICAL: Verify camera outputs color (BGR/RGB), not GRAY8 (monochrome)
+# CRITICAL: Verify camera outputs a color format (YUY2/UYVY/BGR/RGB), not GRAY8
 echo ""
 echo "  [FORMAT CHECK] Camera pixel format configuration"
 out=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=YUY2,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
@@ -436,20 +436,13 @@ fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)
 if echo "$fmt" | grep -qE "^BGR$|^RGB$|^YUY2$|^UYVY$"; then
   printf "  %-57s[OK]  camera outputs %s (color)\n" "Camera format" "$fmt"
 else
-  printf "  %-57s[FAIL] camera outputs %s (monochrome)\n" "Camera format" "$fmt"
+  printf "  %-57s[FAIL] camera outputs %s (should be YUY2 for NVMM path)\n" "Camera format" "$fmt"
   echo ""
-  echo "         SOLUTION: Configure camera in pylon, NOT GStreamer"
-  echo "         Camera format is set persistently via pylon Viewer or pylon tools."
-  echo "         "
-  echo "         Option 1: Use pylon Viewer GUI"
-  echo "           - Launch: pylon Viewer"
+  echo "         SOLUTION: Configure camera pixel format in pylon Viewer"
+  echo "           - Launch: /opt/pylon/bin/pylonviewer"
   echo "           - Connect to camera"
-  echo "           - Camera → Features → PixelFormat → select BGR8 or RGB8"
+  echo "           - Camera Features → PixelFormat → select YCbCr422_8 (= YUY2)"
   echo "           - Save camera settings"
-  echo "         "
-  echo "         Option 2: Use pylon command-line (if available)"
-  echo "           pylonc set --device <serial> PixelFormat BGR8"
-  echo "         "
   echo "         After configuring, re-run diagnose_pipeline.sh"
   FAIL=$(( FAIL + 1 ))
   STOP=1
