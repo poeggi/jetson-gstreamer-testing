@@ -373,17 +373,11 @@ if [[ "$CAPTURE_MODE" == "bayer" ]]; then
 else
   # --- Color path (NVMM direct -- zero system RAM copy) ---
   #
-  # pylonsrc places each captured frame directly into NVMM: USB DMA writes
-  # into GPU-accessible memory with no system RAM intermediate. The camera
-  # FPGA debayers internally and outputs the format specified by PIXEL_FORMAT.
-  # Without explicit format constraint, pylonsrc may default to GRAY8 (monochrome).
-  # nvvidconv converts that format to NV12 entirely within NVMM via the VIC
-  # hardware block -- no memory copy, format conversion only.
-  # Zero CPU copies between camera capture and NVENC encoder.
-  # Camera pixel format (color vs monochrome) is configured via pylon Viewer or
-  # pylon tools, NOT via GStreamer. The camera remembers the setting persistently.
-  # If camera outputs GRAY8 instead of BGR8, use pylon Viewer to set PixelFormat.
-  # Caps filter asserts NVMM memory type and resolution/framerate after negotiation.
+  # pylonsrc outputs frames directly into NVMM (USB DMA -> GPU, no system RAM copy).
+  # The format constraint (BGR by default) is mandatory: without it pylonsrc picks
+  # GRAY8 during caps negotiation regardless of camera power-on state.
+  # nvvidconv converts BGR -> NV12 within NVMM via VIC hardware (zero copy).
+  # Caps filter asserts both NVMM memory type and color format for caps negotiation.
   CAPS_SRC="video/x-raw(memory:NVMM),format=${PIXEL_FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
   Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
   SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \

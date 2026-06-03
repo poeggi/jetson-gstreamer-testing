@@ -430,7 +430,7 @@ echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test)
 
 # CRITICAL: Verify camera outputs color (BGR/RGB), not GRAY8 (monochrome)
 echo ""
-echo "  [FORMAT CHECK] Camera pixel format configuration (UserSet1)"
+echo "  [FORMAT CHECK] Camera pixel format configuration"
 out=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=BGR,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
 fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)[^ ]*" | cut -d' ' -f2)
 if echo "$fmt" | grep -qE "^BGR$|^RGB$|^YUY2$|^UYVY$"; then
