@@ -61,7 +61,8 @@ run_test() {
   printf "  %-57s" "${label}"
 
   local out
-  out=$(gst-launch-1.0 -e "$@" 2>&1) || true
+  # shellcheck disable=SC2068
+  out=$(gst-launch-1.0 -e $@ 2>&1) || true
 
   if echo "$out" | grep -q "${CRITICAL}"; then
     echo "[FAIL] <-- gst_element_make_from_uri triggered"
