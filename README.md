@@ -38,13 +38,14 @@ BOXER-8651AI host controller. Camera framerate is hardware-fixed; caps are metad
 | Standard     | Also known as         | Theoretical | Practical (Basler rated) |
 |--------------|-----------------------|-------------|--------------------------|
 | USB 3.1 Gen1 | USB 3.0, USB 3.2 Gen1 | 5 Gbps      | ~380 MB/s sustained      |
-| USB 3.1 Gen2 | USB 3.2 Gen2          | 10 Gbps     | ~800 MB/s sustained      |
 
 Practical bandwidth = effective payload rate after USB protocol overhead (~10%).
 
-**Jetson Orin NX:** The module provides USB 3.1 Gen1 ports only. Gen2 (10 Gbps)
-requires a carrier board with a PCIe-attached USB 3.2 Gen2 host controller
-(e.g. reference carrier + VL805 or ASM3142).
+**Both camera and SoM are Gen1 only:**
+- **a2A4096-30ucPRO:** USB 3.0 (5 Gbps) interface — Gen1 only, Micro-B connector with screw lock
+- **Jetson Orin NX:** Gen1 ports only on the module itself
+
+Gen2 (10 Gbps) is not available on either side and is not relevant to this setup.
 
 **Feasibility key used in tables below:**
 
@@ -158,26 +159,15 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (30 at 30 fps -- the
 
 ## 5 - Recommended Configurations
 
-**Note:** Color mode (YUY2) at 4096 x 2160 x 30fps = ~530 MB/s — confirmed working on BOXER-8651AI Gen1 host controller despite exceeding the conservative Basler ~380 MB/s ceiling.
+Both camera and SoM are USB 3.1 Gen1 only. Nominal YUY2 bandwidth at 4096x2160/30fps
+(~530 MB/s) exceeds the theoretical Gen1 ceiling but works in practice -- likely due to
+Basler Compression Beyond lossless compression reducing actual USB payload to ~175-265 MB/s.
 
-### USB 3.1 Gen1 -- Jetson Orin NX onboard ports
-
-| Goal                    | Format      | Resolution  | FPS | Bandwidth | Notes                             |
-|-------------------------|-------------|-------------|-----|-----------|-----------------------------------|
-| **4K DCI color (default)** | YCbCr422_8 | 4096 x 2160 | 30 | ~530 MB/s | Confirmed working on BOXER-8651AI |
-| 4K UHD color            | YCbCr422_8  | 3840 x 2160 |  30 | 498 MB/s  | OK                                |
-| 1080p high fps          | YCbCr422_8  | 1920 x 1080 |  60 | 249 MB/s  | OK                                |
-
-### USB 3.1 Gen2 -- carrier board PCIe USB controller
-
-| Goal                    | Format        | Resolution  | FPS | Bandwidth | Notes                      |
-|-------------------------|---------------|-------------|-----|-----------|----------------------------|
-| 4K DCI color (default)  | YCbCr422_8    | 4096 x 2160 |  30 | 530 MB/s  | OK -- zero-copy NVMM       |
-| 12 MP at 30 fps         | BayerRG8      | 4096 x 3000 |  30 | 369 MB/s  | OK -- sensor limit         |
-| 12 MP 12-bit at 20 fps  | BayerRG12Pack | 4096 x 3000 |  20 | 369 MB/s  | OK -- custom debayer req.  |
-| 4K all formats          | BayerRG12Pack | 3840 x 2160 |  30 | 373 MB/s  | (~) -- custom debayer req. |
-| 4K 30fps color          | YCbCr422_8    | 3840 x 2160 |  30 | 498 MB/s  | OK -- nvvidconv direct     |
-| 1080p max fps           | BayerRG8      | 1920 x 1080 | 240 | 498 MB/s  | OK -- NVENC limit: 240fps  |
+| Goal                       | Format      | Resolution  | FPS | Nominal BW | Notes                             |
+|----------------------------|-------------|-------------|-----|------------|-----------------------------------|
+| **4K DCI color (default)** | YCbCr422_8  | 4096 x 2160 |  30 | ~530 MB/s  | Confirmed working (Compression Beyond likely active) |
+| 4K UHD color               | YCbCr422_8  | 3840 x 2160 |  30 |  498 MB/s  | OK                                |
+| 1080p high fps             | YCbCr422_8  | 1920 x 1080 |  60 |  249 MB/s  | OK                                |
 
 ---
 
