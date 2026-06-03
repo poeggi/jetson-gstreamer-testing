@@ -375,13 +375,14 @@ else
   #
   # pylonsrc places each captured frame directly into NVMM: USB DMA writes
   # into GPU-accessible memory with no system RAM intermediate. The camera
-  # FPGA debayers internally; pylonsrc negotiates a color format in NVMM.
-  # format= is intentionally unconstrained so caps negotiation selects the
-  # best NVMM format pylonsrc supports (BGRA, RGBA, NV12, etc.).
+  # FPGA debayers internally and outputs the format specified by PIXEL_FORMAT.
+  # Without explicit format constraint, pylonsrc may default to GRAY8 (monochrome).
   # nvvidconv converts that format to NV12 entirely within NVMM via the VIC
   # hardware block -- no memory copy, format conversion only.
   # Zero CPU copies between camera capture and NVENC encoder.
-  CAPS_SRC="video/x-raw(memory:NVMM),width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
+  # Explicitly specify format to prevent pylonsrc defaulting to GRAY8 (monochrome).
+  # The camera FPGA debayers internally; we request the color format from PIXEL_FORMAT.
+  CAPS_SRC="video/x-raw(memory:NVMM),format=${PIXEL_FORMAT}8,width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
   Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
   SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
     ! ${CAPS_SRC} \
