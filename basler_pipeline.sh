@@ -380,11 +380,11 @@ else
   # nvvidconv converts that format to NV12 entirely within NVMM via the VIC
   # hardware block -- no memory copy, format conversion only.
   # Zero CPU copies between camera capture and NVENC encoder.
-  # Explicitly specify format to prevent pylonsrc defaulting to GRAY8 (monochrome).
-  # The camera FPGA debayers internally; we request the color format from PIXEL_FORMAT.
-  CAPS_SRC="video/x-raw(memory:NVMM),format=${PIXEL_FORMAT}8,width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
+  # pylonsrc pixelformat property requests the camera output format (e.g. BGR8).
+  # Caps filter asserts NVMM memory type and resolution/framerate after negotiation.
+  CAPS_SRC="video/x-raw(memory:NVMM),width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
   Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
-  SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
+  SRC_SEGMENT="pylonsrc ${SERIAL_PROP} pixelformat=${PIXEL_FORMAT}8 \
     ! ${CAPS_SRC} \
     ! identity name=cam     silent=true check-imperfect-timestamp=true \
     ! ${Q} \

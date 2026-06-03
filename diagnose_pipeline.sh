@@ -438,15 +438,15 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   STOP=0
 
   run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" 10 1 \
-    "pylonsrc num-buffers=${CAM_BUFFERS} \
-     ! video/x-raw(memory:NVMM),format=BGR8,width=${W},height=${H},framerate=${FPS}/1 \
+    "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 \
+     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! nvvidconv nvbuf-memory-type=4 \
      ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
      ! fakesink sync=false"
 
   run_test "pylonsrc full color pipeline (NVMM zero-copy, small res)" 10 1 \
-    "pylonsrc num-buffers=${CAM_BUFFERS} \
-     ! video/x-raw(memory:NVMM),format=BGR8,width=${W},height=${H},framerate=${FPS}/1 \
+    "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 \
+     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! identity name=cam silent=true check-imperfect-timestamp=true \
      ! ${Q} \
      ! nvvidconv nvbuf-memory-type=4 \
@@ -464,8 +464,8 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
     RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}/diag"
     run_test "pylonsrc full chain + rtspclientsink (production)" 10 1 \
-      "pylonsrc num-buffers=${CAM_BUFFERS} \
-       ! video/x-raw(memory:NVMM),format=BGR8,width=${W},height=${H},framerate=${FPS}/1 \
+      "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 \
+       ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
        ! identity name=cam silent=true check-imperfect-timestamp=true \
        ! ${Q} \
        ! nvvidconv nvbuf-memory-type=4 \
