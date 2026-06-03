@@ -33,8 +33,8 @@
 #
 # Prerequisites on Jetson (run dependency checks below first):
 #   - gstreamer1.0-tools
-#   - gstreamer1.0-plugins-good   (rtph264pay, rtph265pay)
-#   - gstreamer1.0-plugins-bad    (bayer2rgb, h264parse, h265parse, rtspclientsink)
+#   - gstreamer1.0-plugins-good   (for RTP utilities)
+#   - gstreamer1.0-plugins-bad    (h264parse, h265parse, rtspclientsink)
 #   - NVIDIA JetPack GStreamer    (nvvidconv, nvv4l2h264enc, nvv4l2h265enc)
 #   - Basler pylon GStreamer pkg  (pylonsrc) -- from baslerweb.com/downloads
 #   - MediaMTX RTSP server        (for OUTPUT_MODE=rtsp) -- github.com/bluenviron/mediamtx
@@ -65,43 +65,16 @@ WIDTH=4096
 HEIGHT=2160
 
 # Frame rate in frames per second.
-# At 4096 x 2160, color mode BGR8 (3 bytes/px): ~664 MB/s -- requires Gen2.
-# For Gen1 onboard ports (~380 MB/s), use CAPTURE_MODE=bayer (221 MB/s).
+# 4096x2160 YUY2 (2 bytes/px) at 25fps = ~442 MB/s -- requires USB 3.1 Gen2.
 FRAMERATE=25
 
-# ------------------------------------------------------------------------------
-# CAPTURE_MODE: how pixel data is read from the camera and handed to the encoder
-# ------------------------------------------------------------------------------
-# "color"  pylonsrc emits BGR8 (or format in PIXEL_FORMAT below).
-#          Camera FPGA debayers internally; no CPU debayer cost on Jetson.
-#          pylonsrc with NVMM support places frames directly into GPU memory
-#          via USB DMA -- zero system RAM copies on the entire capture path.
-#          4096x2160 BGR8 at 25fps = ~664 MB/s -- requires USB 3.1 Gen2.
-#
-# "bayer"  pylonsrc emits raw BayerRG8; USB cost is 1 byte/pixel.
-#          4096x2160 BayerRG8 at 25fps = 221 MB/s -- fits Gen1 with headroom.
-#          Debayering is performed on Jetson by bayer2rgb (CPU, NEON SIMD).
-#          Limitation: bayer2rgb only supports 8-bit Bayer. For 12-bit quality,
-#          use CAPTURE_MODE=color with pylon configured to output BGR8 in-camera.
-#
-CAPTURE_MODE="color"
-
-# Pixel format for CAPTURE_MODE=color (ignored in bayer mode).
+# Pixel format for color capture.
 # Must be a format that nvvidconv's VIC hardware accepts as NVMM input.
 # Packed RGB formats (BGR, RGB) are NOT supported by VIC in NVMM mode.
-#   YUY2  - YUV packed, VIC-compatible in NVMM; zero CPU copies end-to-end
-#   UYVY  - same bandwidth as YUY2; alternative if YUY2 causes issues
+#   YUY2  - YUV 4:2:2 packed, 2 bytes/px; VIC-compatible NVMM; zero CPU copies
+#   UYVY  - same as YUY2; alternative byte order if YUY2 causes issues
 #   GRAY8 - monochrome; NV12 chroma planes will be neutral grey
 PIXEL_FORMAT="YUY2"
-
-# Bayer mosaic pattern for CAPTURE_MODE=bayer (ignored in color mode).
-# The a2A4096-30ucPRO uses an RGGB pattern (standard for most Basler color models).
-# Verify in the pylon Viewer under Analog Controls -> Pixel Format.
-#   rggb  - standard; most Basler color cameras (daA, acA, a2A series)
-#   bggr  - some Sony sensor variants
-#   gbrg  - uncommon; check datasheet
-#   grbg  - uncommon; check datasheet
-BAYER_FORMAT="rggb"
 
 # ------------------------------------------------------------------------------
 # ENCODER
@@ -137,8 +110,8 @@ CONTROL_RATE=1
 # OUTPUT_MODE
 # ------------------------------------------------------------------------------
 # "fakesink"  Encode and discard. Use this first to validate camera detection,
-#             caps negotiation, Bayer debayering, and encode performance without
-#             needing an RTSP server running.
+#             caps negotiation, and encode performance without needing an RTSP
+#             server running.
 #             Diagnostic tip: prefix launch with GST_DEBUG=*:3 for verbose caps
 #             negotiation tracing.  Example:
 #               GST_DEBUG=*:3 ./basler_pipeline.sh 2>&1 | grep -i caps
@@ -191,11 +164,6 @@ fi
 # ==============================================================================
 # VALIDATE SETTINGS
 # ==============================================================================
-
-[[ "$CAPTURE_MODE" != "color" && "$CAPTURE_MODE" != "bayer" ]] && {
-  echo "ERROR: CAPTURE_MODE must be 'color' or 'bayer'. Got: '${CAPTURE_MODE}'" >&2
-  exit 1
-}
 
 [[ "$ENCODER" != "h264" && "$ENCODER" != "h265" ]] && {
   echo "ERROR: ENCODER must be 'h264' or 'h265'. Got: '${ENCODER}'" >&2
@@ -333,63 +301,29 @@ SERIAL_PROP=""
 # prevents GStreamer from inserting an unwanted software conversion fallback.
 CAPS_NVMM="video/x-raw(memory:NVMM),format=NV12,width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
 
-if [[ "$CAPTURE_MODE" == "bayer" ]]; then
-  # --- Bayer path ---
-  #
-  # pylonsrc emits video/x-bayer (system RAM, 1 byte/px).
-  # The caps string locks pylon to the correct Bayer pattern and size so
-  # caps negotiation does not accidentally select a different pixel format.
-  #
-  # bayer2rgb performs bilinear Bayer demosaic entirely in software using
-  # Orc/NEON SIMD. Output is video/x-raw,format=RGB (still system RAM).
-  # This is the only standard GStreamer path for Bayer -- no NVMM Bayer
-  # support exists in nvvidconv or the NVENC engine.
-  #
-  # nvvidconv performs a single DMA-assisted copy from system RAM into NVMM
-  # (NVBUF_MEM_SURFACE_ARRAY, nvbuf-memory-type=4), converting RGB -> NV12
-  # using the VIC hardware block. This is the one unavoidable system RAM ->
-  # NVMM step in bayer mode: bayer2rgb has no NVMM-capable counterpart in
-  # standard GStreamer. All elements after nvvidconv use NVMM exclusively.
-  CAPS_BAYER="video/x-bayer,format=${BAYER_FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
-  # Queue parameters used throughout:
-  #   max-size-buffers=2   : hold at most 2 frames between stages
-  #   max-size-bytes=0     : disable byte-based limit (use buffer count only)
-  #   max-size-time=0      : disable time-based limit -- the default (1s) would
-  #                          silently blow the latency budget; must be zero here
-  #   leaky=downstream     : if full, drop the oldest unprocessed frame rather
-  #                          than blocking the upstream stage
-  # Queues hold GstBuffer references only -- NVMM data never moves. Zero-copy
-  # is fully preserved. Each queue also creates a dedicated pipeline thread,
-  # allowing stages to run in parallel rather than sequentially.
-  Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
-  SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
-    ! ${CAPS_BAYER} \
-    ! identity name=cam     silent=true check-imperfect-timestamp=true \
-    ! ${Q} \
-    ! bayer2rgb \
-    ! ${Q} \
-    ! nvvidconv nvbuf-memory-type=4 \
-    ! ${CAPS_NVMM} \
-    ! identity name=pre-enc silent=true check-imperfect-timestamp=true"
-
-else
-  # --- Color path (NVMM direct -- zero system RAM copy) ---
-  #
-  # pylonsrc outputs frames directly into NVMM (USB DMA -> GPU, no system RAM copy).
-  # The format constraint (BGR by default) is mandatory: without it pylonsrc picks
-  # GRAY8 during caps negotiation regardless of camera power-on state.
-  # nvvidconv converts BGR -> NV12 within NVMM via VIC hardware (zero copy).
-  # Caps filter asserts both NVMM memory type and color format for caps negotiation.
-  CAPS_SRC="video/x-raw(memory:NVMM),format=${PIXEL_FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
-  Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
-  SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
-    ! ${CAPS_SRC} \
-    ! identity name=cam     silent=true check-imperfect-timestamp=true \
-    ! ${Q} \
-    ! nvvidconv nvbuf-memory-type=4 \
-    ! ${CAPS_NVMM} \
-    ! identity name=pre-enc silent=true check-imperfect-timestamp=true"
-fi
+# --- Color path (NVMM direct -- zero system RAM copy) ---
+#
+# pylonsrc outputs YUY2 frames directly into NVMM (USB DMA -> GPU, no system RAM copy).
+# Explicit format constraint is mandatory: without it pylonsrc defaults to GRAY8
+# during caps negotiation. Packed RGB (BGR/RGB) rejected by VIC in NVMM mode.
+# nvvidconv converts YUY2 -> NV12 within NVMM via VIC hardware (zero copy).
+#
+# Queue parameters:
+#   max-size-buffers=2   : hold at most 2 frames between stages
+#   max-size-bytes=0     : disable byte limit (use buffer count only)
+#   max-size-time=0      : disable time limit (default 1s blows latency budget)
+#   leaky=downstream     : drop oldest frame if full, never block upstream
+# Queues hold GstBuffer references only -- NVMM data never moves.
+# Each queue also creates a dedicated pipeline thread for parallel stage execution.
+CAPS_SRC="video/x-raw(memory:NVMM),format=${PIXEL_FORMAT},width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
+Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
+SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
+  ! ${CAPS_SRC} \
+  ! identity name=cam     silent=true check-imperfect-timestamp=true \
+  ! ${Q} \
+  ! nvvidconv nvbuf-memory-type=4 \
+  ! ${CAPS_NVMM} \
+  ! identity name=pre-enc silent=true check-imperfect-timestamp=true"
 
 
 # ==============================================================================
@@ -423,41 +357,29 @@ esac
 #
 # Full logical flow -- each arrow is one ! in gst-launch-1.0 syntax:
 #
-#  [bayer mode]
+#  [color mode -- YUY2 NVMM zero-copy]
 #    pylonsrc
-#      -> caps(x-bayer)         lock USB pixel format
+#      -> caps(NVMM/YUY2)       lock format; prevents pylonsrc defaulting to GRAY8
 #      -> identity(cam)         timestamp monitor: USB receive / frame drops
-#      -> bayer2rgb             CPU NEON SIMD demosaic: Bayer -> RGB (system RAM)
-#      -> nvvidconv             VIC HW: RGB -> NV12, copy system RAM -> NVMM
-#      -> caps(NVMM/NV12)       assert NVMM buffer type for encoder
-#      -> identity(pre-enc)     timestamp monitor: debayer + VIC stage
+#      -> queue(leaky)          decouple capture thread from VIC thread
+#      -> nvvidconv             VIC HW: YUY2 -> NV12 (stays in NVMM, zero copy)
+#      -> caps(NVMM/NV12)       assert NVMM NV12 for NVENC
+#      -> identity(pre-enc)     timestamp monitor: VIC output
 #      -> nvv4l2h265enc         NVENC hardware encoder (stays in NVMM)
 #      -> identity(post-enc)    timestamp monitor: encoder output rate
+#      -> queue(post-enc)       decouple encoder from parser/network
 #      -> h265parse             NAL framing; re-injects VPS/SPS/PPS in-band
 #      -> [fakesink | rtspclientsink]
 #
-#  [color mode]
-#    pylonsrc
-#      -> caps(x-raw/BGR)       lock USB pixel format
-#      -> identity(cam)         timestamp monitor: USB receive / frame drops
-#      -> nvvidconv             VIC HW: BGR -> NV12, copy system RAM -> NVMM
-#      -> caps(NVMM/NV12)       assert NVMM buffer type for encoder
-#      -> identity(pre-enc)     timestamp monitor: VIC stage
-#      -> nvv4l2h265enc         NVENC hardware encoder (stays in NVMM)
-#      -> identity(post-enc)    timestamp monitor: encoder output rate
-#      -> h265parse             NAL framing; re-injects VPS/SPS/PPS in-band
-#      -> [fakesink | rtspclientsink]
-#
-# identity elements are zero-copy passthroughs. They hold no data and make
-# no allocations. check-imperfect-timestamp does one integer comparison per
-# buffer and prints a single warning line only when timing is off.
+# identity elements are zero-copy passthroughs with one integer comparison per
+# buffer. check-imperfect-timestamp prints a warning only when timing is off.
 #
 # Expected end-to-end latency budget (sender side, 25fps):
 #
 #   Camera exposure + USB DMA   ~40ms   (one frame -- unavoidable at 25fps)
-#   bayer2rgb + nvvidconv         <2ms   (NEON SIMD + VIC hardware)
+#   nvvidconv YUY2->NV12          <1ms   (VIC hardware, stays in NVMM)
 #   NVENC internal pipeline     ~40-80ms (1-2 frames; num-Bframes=0 keeps this low)
-#   h265parse + rtp payloader     <2ms
+#   h265parse                     <1ms
 #   rtspclientsink TCP (LAN)      <5ms
 #   -------------------------------------------
 #   Sender total              ~85-130ms   (well below 1 second)
@@ -487,25 +409,17 @@ PIPELINE="${SRC_SEGMENT} ! ${ENC_ELEMENT} ! ${IDN_POST_ENC} ! ${Q_ENC_OUT} ! ${P
 # PRINT SUMMARY AND LAUNCH
 # ==============================================================================
 
+# YUY2 = 4:2:2 packed = 2 bytes per pixel
 BW_MBYTES=$(( WIDTH * HEIGHT * FRAMERATE / 1000000 ))
-if [[ "$CAPTURE_MODE" == "bayer" ]]; then
-  BW_LABEL="${BW_MBYTES} MB/s  (BayerRG8, 1 byte/px)"
-else
-  BW_LABEL="$(( BW_MBYTES * 3 )) MB/s  (${PIXEL_FORMAT}, 3 bytes/px)"
-fi
+BW_LABEL="$(( BW_MBYTES * 2 )) MB/s  (${PIXEL_FORMAT}, 2 bytes/px)"
 
 echo "======================================================"
 echo "  Basler a2A4096-30ucPRO -- Jetson Orin NX Pipeline"
 echo "======================================================"
 echo "  Camera serial  : ${CAMERA_SERIAL:-auto-detect}"
 echo "  Resolution     : ${WIDTH}x${HEIGHT} @ ${FRAMERATE} fps"
-if [[ "$CAPTURE_MODE" == "bayer" ]]; then
-  echo "  Capture mode   : BAYER  (${BAYER_FORMAT} -> bayer2rgb -> NV12)"
-  echo "  Memory path    : one system RAM -> NVMM copy (bayer2rgb limitation)"
-else
-  echo "  Capture mode   : COLOR  (NVMM direct -> NV12)"
-  echo "  Memory path    : zero CPU copies -- USB DMA direct to NVMM"
-fi
+echo "  Capture mode   : COLOR  (${PIXEL_FORMAT} NVMM -> NV12)"
+echo "  Memory path    : zero CPU copies -- USB DMA direct to NVMM"
 echo "  USB bandwidth  : ~${BW_LABEL}"
 echo "  Encoder        : ${ENCODER^^}  ${BITRATE} bps  $([ "$CONTROL_RATE" = "1" ] && echo CBR || echo VBR)"
 echo "  Keyframe int.  : every ${IFRAME_INTERVAL} frames"

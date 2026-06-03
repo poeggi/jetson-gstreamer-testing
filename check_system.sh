@@ -281,7 +281,7 @@ fi
 # 2 - USB BUFFER MEMORY AND AUTOSUSPEND
 # usbfs_memory_mb caps the RAM the USB subsystem can pin for DMA buffers.
 # The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
-# At 12 MP BayerRG8: 10 x 12.3 MB = 123 MB minimum. 256 MB gives 2x headroom
+# At 12 MP YUY2 NV12: 10 x ~18 MB = ~180 MB minimum. 256 MB gives headroom
 # for a single camera. Scale to 512 MB if running two cameras on one host.
 # The kernel default of 16 MB causes immediate frame drops at this resolution.
 #
