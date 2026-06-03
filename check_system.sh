@@ -134,20 +134,25 @@ check_cmd nc              "sudo apt install netcat-openbsd"
 
 check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
 
-# NVMM support check -- mandatory for zero-copy color capture.
-# Basler pylon GStreamer plugin >= 2.x advertises video/x-raw(memory:NVMM)
-# when built against the Jetson CUDA/NVMM headers. Without this, the color
-# capture path must copy every frame from system RAM into GPU memory via
-# nvvidconv (one full-frame DMA per frame). bayer mode still requires one
-# system RAM -> NVMM copy regardless (bayer2rgb has no NVMM counterpart).
+# NVMM support check.
+# Blocking failure only in color mode: pylonsrc must output NVMM directly
+# so frames go USB DMA -> GPU with no system RAM intermediate.
+# In bayer mode this is irrelevant: nvvidconv always handles the one
+# unavoidable system RAM -> NVMM copy after bayer2rgb, regardless of
+# whether pylonsrc itself advertises NVMM caps.
 if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
     ok "pylonsrc NVMM caps: zero-copy color capture path available"
-  else
+  elif [[ "$CAPTURE_MODE" == "color" ]]; then
     fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
     fail "     Color capture requires a system RAM -> GPU copy per frame."
     fail "     Upgrade to an NVMM-capable pylon GStreamer plugin:"
     fail "     github.com/basler/gst-plugin-pylon/releases"
+  else
+    warn "pylonsrc does not advertise NVMM caps (memory:NVMM)"
+    warn "     Bayer mode is unaffected -- nvvidconv handles system RAM -> NVMM after bayer2rgb."
+    warn "     Color mode would require an NVMM-capable plugin if switched:"
+    warn "     github.com/basler/gst-plugin-pylon/releases"
   fi
 fi
 

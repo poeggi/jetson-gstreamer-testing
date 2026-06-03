@@ -204,20 +204,21 @@ fi
 
 
 # ==============================================================================
-# NVMM CAPABILITY CHECK
-# pylonsrc must advertise NVMM caps so the color capture path places frames
-# directly into GPU memory. Without NVMM, nvvidconv must copy every frame
-# from system RAM into NVMM -- one full-frame DMA per frame, per second.
-# bayer mode always requires one system RAM -> NVMM copy (bayer2rgb outputs
-# system RAM; no NVMM-capable Bayer debayer exists in standard GStreamer).
+# NVMM CAPABILITY CHECK (color mode only)
+# In color mode, pylonsrc must advertise NVMM caps so frames are placed
+# directly into GPU memory with no system RAM intermediate.
+# Bayer mode is unaffected: nvvidconv always handles the one unavoidable
+# system RAM -> NVMM copy after bayer2rgb, regardless of pylonsrc NVMM caps.
 # ==============================================================================
 
-if ! gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
-  echo "ERROR: pylonsrc does not advertise NVMM caps on this system." >&2
-  echo "       Color capture cannot avoid a system RAM -> GPU copy per frame." >&2
-  echo "       Upgrade the pylon GStreamer plugin:" >&2
-  echo "       github.com/basler/gst-plugin-pylon/releases" >&2
-  exit 1
+if [[ "$CAPTURE_MODE" == "color" ]]; then
+  if ! gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
+    echo "ERROR: pylonsrc does not advertise NVMM caps on this system." >&2
+    echo "       Color capture cannot avoid a system RAM -> GPU copy per frame." >&2
+    echo "       Upgrade the pylon GStreamer plugin:" >&2
+    echo "       github.com/basler/gst-plugin-pylon/releases" >&2
+    exit 1
+  fi
 fi
 
 
