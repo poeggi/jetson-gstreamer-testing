@@ -407,16 +407,13 @@ case "$OUTPUT_MODE" in
     ;;
   rtsp)
     RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}${RTSP_PATH}"
-    # rtph264/5pay packetizes the encoded bitstream into RTP packets.
-    #   pt=96          : dynamic RTP payload type (standard for H.264/H.265)
-    #   config-interval=-1 : inject SPS/PPS/VPS into every RTP access unit;
-    #                        allows RTSP clients to join mid-stream
-    #
     # rtspclientsink pushes the stream to an RTSP server using ANNOUNCE/RECORD.
+    # Note: rtspclientsink handles RTP payload internally; h265parse provides
+    # NAL framing and SPS/PPS/VPS re-injection which rtspclientsink needs.
     #   protocols=tcp  : force TCP transport. UDP can lose packets causing
     #                    decoder errors; TCP is reliable and preferred for LAN.
     #                    For WAN with firewalled UDP, TCP is also the safe choice.
-    OUTPUT_SEGMENT="${RTP_ELEMENT} ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
+    OUTPUT_SEGMENT="rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
     ;;
 esac
 
@@ -438,7 +435,7 @@ esac
 #      -> nvv4l2h265enc         NVENC hardware encoder (stays in NVMM)
 #      -> identity(post-enc)    timestamp monitor: encoder output rate
 #      -> h265parse             NAL framing; re-injects VPS/SPS/PPS in-band
-#      -> [fakesink | rtph265pay -> rtspclientsink]
+#      -> [fakesink | rtspclientsink]
 #
 #  [color mode]
 #    pylonsrc
@@ -450,7 +447,7 @@ esac
 #      -> nvv4l2h265enc         NVENC hardware encoder (stays in NVMM)
 #      -> identity(post-enc)    timestamp monitor: encoder output rate
 #      -> h265parse             NAL framing; re-injects VPS/SPS/PPS in-band
-#      -> [fakesink | rtph265pay -> rtspclientsink]
+#      -> [fakesink | rtspclientsink]
 #
 # identity elements are zero-copy passthroughs. They hold no data and make
 # no allocations. check-imperfect-timestamp does one integer comparison per

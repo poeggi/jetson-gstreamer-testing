@@ -465,7 +465,6 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
        ! identity name=post-enc silent=true check-imperfect-timestamp=true \
        ! ${Q_ENC_OUT} \
        ! h265parse config-interval=-1 \
-       ! rtph265pay pt=96 config-interval=-1 \
        ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
   else
     echo ""
