@@ -18,4 +18,4 @@ gst-launch-1.0 \
   ! h264parse \
   ! nvv4l2decoder \
   ! nvvidconv \
-  ! nvoverlaysink sync=false
+  ! nveglglessink sync=false
