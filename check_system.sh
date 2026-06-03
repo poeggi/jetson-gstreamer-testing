@@ -311,6 +311,27 @@ else
 fi
 
 USB_AS_FILE="/sys/module/usbcore/parameters/autosuspend"
+
+# XHCI interrupt moderation (IMOD) -- groups USB transfer completions to reduce
+# interrupt rate. Linux default is 4000 (1ms). 0 = disabled (every transfer fires
+# an interrupt). Reading via debugfs; low priority warning if disabled.
+IMOD_VALUE=""
+for IMOD_FILE in /sys/kernel/debug/usb/xhci*/interrupter_0/IMOD \
+                  /sys/kernel/debug/usb/xhci*/IMOD; do
+  if [[ -f "$IMOD_FILE" ]]; then
+    IMOD_VALUE=$(cat "$IMOD_FILE" 2>/dev/null || true)
+    break
+  fi
+done
+if [[ -z "$IMOD_VALUE" ]]; then
+  info "XHCI IMOD: cannot read (debugfs not mounted or path differs on this kernel)"
+elif [[ "$IMOD_VALUE" == "0" || "$IMOD_VALUE" == "0x0" ]]; then
+  warn "XHCI interrupt moderation (IMOD) is DISABLED -- every USB transfer fires an interrupt"
+  warn "     At 530 MB/s this significantly increases CPU interrupt overhead."
+  warn "     Linux default is 4000 (1ms coalescing). Check device tree or kernel config."
+else
+  ok "XHCI interrupt moderation: IMOD=${IMOD_VALUE} ($(( ${IMOD_VALUE##0x} * 250 / 1000 )) us coalescing interval)"
+fi
 if [[ -f "$USB_AS_FILE" ]]; then
   USB_AS=$(cat "$USB_AS_FILE")
   if [[ "$USB_AS" -lt 0 ]]; then
