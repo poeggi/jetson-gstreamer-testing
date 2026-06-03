@@ -431,9 +431,9 @@ echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test)
 # CRITICAL: Verify camera outputs color (BGR/RGB), not GRAY8 (monochrome)
 echo ""
 echo "  [FORMAT CHECK] Camera pixel format configuration (UserSet1)"
-out=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=BGR8,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
+out=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=BGR,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
 fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)[^ ]*" | cut -d' ' -f2)
-if echo "$fmt" | grep -qE "BGR|RGB|YUY2|UYVY"; then
+if echo "$fmt" | grep -qE "^BGR$|^RGB$|^YUY2$|^UYVY$"; then
   printf "  %-57s[OK]  camera outputs %s (color)\n" "Camera format" "$fmt"
 else
   printf "  %-57s[FAIL] camera outputs %s (monochrome)\n" "Camera format" "$fmt"
@@ -466,14 +466,14 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
 
   run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" 10 1 \
     "pylonsrc num-buffers=${CAM_BUFFERS} \
-     ! video/x-raw(memory:NVMM),format=BGR8,width=${W},height=${H},framerate=${FPS}/1 \
+     ! video/x-raw(memory:NVMM),format=BGR,width=${W},height=${H},framerate=${FPS}/1 \
      ! nvvidconv nvbuf-memory-type=4 \
      ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
      ! fakesink sync=false"
 
   run_test "pylonsrc full color pipeline (NVMM zero-copy, small res)" 10 1 \
     "pylonsrc num-buffers=${CAM_BUFFERS} \
-     ! video/x-raw(memory:NVMM),format=BGR8,width=${W},height=${H},framerate=${FPS}/1 \
+     ! video/x-raw(memory:NVMM),format=BGR,width=${W},height=${H},framerate=${FPS}/1 \
      ! identity name=cam silent=true check-imperfect-timestamp=true \
      ! ${Q} \
      ! nvvidconv nvbuf-memory-type=4 \
@@ -492,7 +492,7 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
     RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}/diag"
     run_test "pylonsrc full chain + rtspclientsink (production)" 10 1 \
       "pylonsrc num-buffers=${CAM_BUFFERS} \
-       ! video/x-raw(memory:NVMM),format=BGR8,width=${W},height=${H},framerate=${FPS}/1 \
+       ! video/x-raw(memory:NVMM),format=BGR,width=${W},height=${H},framerate=${FPS}/1 \
        ! identity name=cam silent=true check-imperfect-timestamp=true \
        ! ${Q} \
        ! nvvidconv nvbuf-memory-type=4 \
