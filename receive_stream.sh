@@ -29,5 +29,5 @@ gst-launch-1.0 \
   ! h264parse \
   ! nvv4l2decoder \
   ! nvvidconv \
-  ! "video/x-raw(memory:NVMM),format=NV12" \
+  ! "video/x-raw(memory:NVMM),format=NV12,width=2048,height=1080" \
   ! "${SINK}" sync=false
