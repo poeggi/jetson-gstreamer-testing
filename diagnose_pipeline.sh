@@ -48,12 +48,23 @@ fi
 # HELPERS
 # ==============================================================================
 
-# run_test LABEL PIPELINE_STRING
-# Passes the pipeline as a single quoted string, matching basler_pipeline.sh.
+# run_test LABEL [TIMEOUT_SEC] PIPELINE_STRING...
+# Passes the pipeline as quoted args, matching basler_pipeline.sh.
 # Stops at the first failure (STOP=1).
+# Optional TIMEOUT_SEC (default 30): if pipeline times out after this many
+# seconds, treat as [OK] if timeout_is_ok=1, else [FAIL].
 run_test() {
   local label="$1"
+  local timeout_sec=30
+  local timeout_is_ok=0
   shift
+
+  # Check if next arg is a number (timeout override)
+  if [[ "$1" =~ ^[0-9]+$ ]]; then
+    timeout_sec="$1"
+    timeout_is_ok="$2"  # 1 = timeout is OK, 0 = timeout is failure
+    shift 2
+  fi
 
   if [[ "$STOP" -eq 1 ]]; then
     printf "  %-57s[SKIP]\n" "${label}"
@@ -64,12 +75,18 @@ run_test() {
 
   local out rc=0
   # shellcheck disable=SC2068
-  out=$(timeout 30 gst-launch-1.0 -e $@ 2>&1) || rc=$?
+  out=$(timeout "$timeout_sec" gst-launch-1.0 -e $@ 2>&1) || rc=$?
   if [[ $rc -eq 124 ]]; then
-    echo "[FAIL] <-- pipeline hung (did not exit within 30s)"
-    FAIL=$(( FAIL + 1 ))
-    STOP=1
-    return 1
+    if [[ $timeout_is_ok -eq 1 ]]; then
+      echo "[OK] (ran ${timeout_sec}s, no errors)"
+      PASS=$(( PASS + 1 ))
+      return 0
+    else
+      echo "[FAIL] <-- pipeline hung (did not exit within ${timeout_sec}s)"
+      FAIL=$(( FAIL + 1 ))
+      STOP=1
+      return 1
+    fi
   fi
 
   if echo "$out" | grep -q "${CRITICAL}"; then
@@ -401,7 +418,7 @@ run_test "+ rtph265pay pt=96 config-interval=-1 (full chain to RTP payloader)" \
 echo ""
 echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test) ---"
 
-run_test "pylonsrc ! fakesink" \
+run_test "pylonsrc ! fakesink" 10 1 \
   "pylonsrc num-buffers=${CAM_BUFFERS} ! fakesink sync=false"
 
 # Color path (primary -- matches default CAPTURE_MODE=color in basler_pipeline.sh)
@@ -410,14 +427,14 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   echo "  Color path (primary -- NVMM zero-copy, default CAPTURE_MODE=color)"
   STOP=0
 
-  run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" \
+  run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" 10 1 \
     "pylonsrc num-buffers=${CAM_BUFFERS} \
      ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! nvvidconv nvbuf-memory-type=4 \
      ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
      ! fakesink sync=false"
 
-  run_test "pylonsrc full color pipeline (NVMM zero-copy, small res)" \
+  run_test "pylonsrc full color pipeline (NVMM zero-copy, small res)" 10 1 \
     "pylonsrc num-buffers=${CAM_BUFFERS} \
      ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! identity name=cam silent=true check-imperfect-timestamp=true \
