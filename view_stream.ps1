@@ -2,7 +2,7 @@ param(
     [string]$Host = "192.168.1.252",
     [string]$Port = "8554",
     [string]$Path = "/main",
-    [int]$Caching = 200
+    [int]$Caching = 200   # 200ms minimum confirmed for H.265; below this VLC drops frames
 )
 
 $url = "rtsp://${Host}:${Port}${Path}"

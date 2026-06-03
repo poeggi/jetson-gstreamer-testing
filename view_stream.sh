@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # View the RTSP stream with low-latency settings.
 # Usage: ./view_stream.sh [host] [port] [path] [caching_ms]
+# Note: caching below 200ms may not work reliably with H.265 (VLC drops frames).
 
 HOST="${1:-192.168.1.252}"
 PORT="${2:-8554}"
