@@ -5,7 +5,7 @@
 # Systematically tests each GStreamer pipeline stage on Jetson Orin NX,
 # adding one element at a time to identify exactly which element fails.
 # Mirrors basler_pipeline.sh: same elements, same properties, same defaults
-# (color NVMM capture, H.265, fakesink output).
+# (color YUY2 NVMM capture, H.264, fakesink output).
 #
 # Section 7 uses videotestsrc as source. videotestsrc outputs system RAM
 # so nvvidconv performs RAM->NVMM in addition to format conversion; in
@@ -24,7 +24,7 @@ CAM_BUFFERS=20      # frames per camera test (pylonsrc) -- limited for speed
 W=4096              # production resolution (NVENC H.264 level limit)
 H=2160              # 4096x2160 = 8.8 MP
 FPS=30              # camera native framerate (hardware fixed at 30fps)
-BITRATE=28000000    # production bitrate (H.264 CBR, 28 Mbps at 4K/25fps)
+BITRATE=28000000    # production bitrate (H.264 CBR, 28 Mbps at 4K/30fps)
 
 PASS=0
 FAIL=0
@@ -466,10 +466,10 @@ fi
 run_test "pylonsrc ! fakesink" 10 1 \
   "pylonsrc num-buffers=${CAM_BUFFERS} ! fakesink sync=false"
 
-# Color path (primary -- matches default CAPTURE_MODE=color in basler_pipeline.sh)
+# Color path (primary -- YUY2 NVMM zero-copy, matches basler_pipeline.sh default)
 if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   echo ""
-  echo "  Color path (primary -- NVMM zero-copy, default CAPTURE_MODE=color)"
+  echo "  Color path (primary -- YUY2 NVMM zero-copy)"
   STOP=0
 
   run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" 10 1 \

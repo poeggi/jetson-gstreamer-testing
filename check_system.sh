@@ -23,7 +23,7 @@ set -euo pipefail
 QUIET=0
 FATAL_ONLY=0
 AUTOFIX=0
-ENCODER="h265"
+ENCODER="h264"
 OUTPUT_MODE="rtsp"
 
 for arg in "$@"; do
@@ -217,7 +217,7 @@ if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
   else
     fail "NVENC hardware: ${_NVENC_ELEM} plugin present but test encode failed"
     fail "     NVENC silicon may be absent on this SoM. This pipeline requires"
-    fail "     hardware H.265/H.264 encoding; software cannot sustain 12MP/25fps."
+    fail "     hardware H.264/H.265 encoding; software cannot sustain 4K/30fps."
   fi
 fi
 
@@ -342,7 +342,7 @@ section "Jetson power and clock configuration"
 # headroom at reduced clocks. The watt value is parsed from the mode name
 # string (MODE_15W, 7W, etc.); MAXN/MAXN_SUPER are matched by name first.
 # Modes at or below 10W (NX 10W, Nano 7W) are flagged as potentially
-# marginal for sustained 4K/25fps color capture and encode.
+# marginal for sustained 4K/30fps color capture and encode.
 
 if command -v nvpmodel >/dev/null 2>&1; then
   POWER_LINE=$(nvpmodel -q 2>/dev/null | grep "NV Power Mode" | head -1 || true)
@@ -351,11 +351,11 @@ if command -v nvpmodel >/dev/null 2>&1; then
   if echo "$POWER_LINE" | grep -qi "MAXN"; then
     ok "nvpmodel: $POWER_LINE"
     info "NOTE: MAXN/MAXN_SUPER (~20-28W) is more than this pipeline requires."
-    info "      15W sustains 12MP/25fps with headroom on all supported modules."
+    info "      15W sustains 4K/30fps with headroom on all supported modules."
     info "      List available modes: sudo nvpmodel --list-modes"
   elif [[ -n "$_PMODE_W" && "$_PMODE_W" -le 10 ]]; then
     warn "nvpmodel: $POWER_LINE"
-    warn "     ${_PMODE_W}W may be marginal for 4K/25fps color NVMM capture and encode."
+    warn "     ${_PMODE_W}W may be marginal for 4K/30fps color NVMM capture and encode."
     warn "     Consider the 15W mode: sudo nvpmodel --list-modes"
   else
     ok "nvpmodel: $POWER_LINE -- recommended production target for this pipeline"
@@ -415,7 +415,7 @@ fi
 
 # CPU idle C-states -- deepest state only.
 # On Jetson Orin NX the deepest C-state (C7, core power-gate) has a 5 ms wake
-# latency. At 25fps (40 ms frame time) this consumes 12.5% of the frame budget
+# latency. At 30fps (33 ms frame time) this consumes 15% of the frame budget
 # and causes measurable scheduling jitter when multiple pipeline threads wake
 # simultaneously on a frame arrival. Only this deepest state needs disabling;
 # WFI (state0) and any intermediate states are negligible and should remain
@@ -593,8 +593,8 @@ if [[ -n "$BASLER_DEV_PATH" ]]; then
       ;;
     480)
       fail "USB connection speed: ${SPEED} Mbps -- USB 2.0 High Speed"
-      fail "     Camera is on a USB 2.0 port or hub. At 12MP/25fps the pipeline"
-      fail "     needs 307 MB/s; USB 2.0 provides ~40 MB/s. Plug directly into"
+      fail "     Camera is on a USB 2.0 port or hub. At 4K/30fps the pipeline"
+      fail "     needs ~530 MB/s; USB 2.0 provides ~40 MB/s. Plug directly into"
       fail "     a USB 3.x blue port on the Jetson carrier board."
       ;;
     *)

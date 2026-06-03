@@ -18,17 +18,17 @@ and a full bandwidth and bitrate reference for this camera and interface.
 | Sensor format         | 1/1.1 inch                                     |
 | Pixel size            | 3.45 um x 3.45 um                              |
 | Interface             | USB 3.1 Gen1 (5 Gbps)                          |
-| Max FPS (full res)    | 30 fps -- BayerRG8 only on Gen1 (sensor limit) |
+| Max FPS (full res)    | 30 fps (sensor limit)                          |
 | Shutter type          | Global shutter (no rolling shutter artefact)   |
 | ADC depth             | 12-bit                                         |
 | Dynamic range         | ~73.4 dB                                       |
 | Pixel formats (color) | BayerRG8/10/12/12Packed, RGB8, BGR8, YUV422    |
 | PRO extras            | PTP (IEEE 1588) sync, Sequencer, extended I/O  |
 
-The "30" in the model name specifies the maximum frame rate at full resolution
-over USB 3.1 Gen1. This rate is achievable ONLY with BayerRG8 (1 byte/px =
-369 MB/s -- just inside the Gen1 practical ceiling of ~380 MB/s).
-The script runs at 30 fps (camera hardware-fixed rate; framerate caps are metadata only).
+The "30" in the model name specifies the maximum frame rate at full resolution.
+The script uses YCbCr422_8 (YUY2) at 4096x2160 / 30fps = ~530 MB/s over USB 3.1 Gen1.
+This exceeds the conservative Basler ceiling (~380 MB/s) but is confirmed working on the
+BOXER-8651AI host controller. Camera framerate is hardware-fixed; caps are metadata only.
 
 ---
 
@@ -75,12 +75,10 @@ Bandwidth formula: `width x height x bytes_per_pixel x fps / 1,000,000`
 | BGR8 / RGB8     | 3.00 | 1106 MB/s   |  10  NO      |  21  NO      | OK  nvvidconv direct     |
 
 **Key findings:**
-- BayerRG8 is the ONLY format that reaches the camera-rated 30 fps on Gen1,
-  and only just barely (~97% of the ceiling). Use 25 fps for headroom.
-- All debayered and high-bit-depth formats require Gen2 for 30 fps operation.
+- **YCbCr422_8 (YUY2) at 4096x2160 / 30fps = ~530 MB/s** -- exceeds the theoretical Gen1
+  ceiling but confirmed working on BOXER-8651AI. This is the pipeline default format.
+- BGR8/RGB8 are NOT supported by nvvidconv VIC hardware as NVMM input -- use YUY2.
 - BGR8/RGB8 at 30 fps exceeds even Gen2. Maximum is ~21 fps on Gen2.
-- BayerRG12Packed fits bandwidth-wise on Gen2 at 30 fps but requires a custom
-  GStreamer debayer plugin -- stock `bayer2rgb` handles 8-bit only.
 
 ---
 
@@ -163,15 +161,11 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (30 at 30 fps -- the
 
 ### USB 3.1 Gen1 -- Jetson Orin NX onboard ports
 
-| Goal                | Format   | Resolution  | FPS | Bandwidth | Notes                      |
-|---------------------|----------|-------------|-----|-----------|----------------------------|
-| 4K DCI bayer        | BayerRG8 | 4096 x 2160 |  25 | 221 MB/s  | OK -- Gen1 bayer option    |
-| 12 MP standard      | BayerRG8 | 4096 x 3000 |  25 | 307 MB/s  | OK                         |
-| 12 MP max rated fps | BayerRG8 | 4096 x 3000 |  30 | 369 MB/s  | (~) -- verify USB host     |
-| 5 MP high fps       | BayerRG8 | 2592 x 1944 |  60 | 302 MB/s  | OK                         |
-| 4K standard         | BGR8     | 3840 x 2160 |  14 | 348 MB/s  | OK -- no debayer CPU cost  |
-| 4K 30fps            | BayerRG8 | 3840 x 2160 |  30 | 249 MB/s  | OK                         |
-| 1080p high fps      | BayerRG8 | 1920 x 1080 | 120 | 249 MB/s  | OK                         |
+| Goal                    | Format      | Resolution  | FPS | Bandwidth | Notes                             |
+|-------------------------|-------------|-------------|-----|-----------|-----------------------------------|
+| **4K DCI color (default)** | YCbCr422_8 | 4096 x 2160 | 30 | ~530 MB/s | Confirmed working on BOXER-8651AI |
+| 4K UHD color            | YCbCr422_8  | 3840 x 2160 |  30 | 498 MB/s  | OK                                |
+| 1080p high fps          | YCbCr422_8  | 1920 x 1080 |  60 | 249 MB/s  | OK                                |
 
 ### USB 3.1 Gen2 -- carrier board PCIe USB controller
 
@@ -188,19 +182,16 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (30 at 30 fps -- the
 
 ## 6 - GStreamer Element Compatibility
 
-| Format          | GStreamer media type           | bayer2rgb | nvvidconv | Pipeline path              |
-|-----------------|-------------------------------|-----------|-----------|----------------------------|
-| BayerRG8        | video/x-bayer,format=rggb     | OK        | NO direct | pylonsrc->bayer2rgb->nvvid |
-| BayerRG12Packed | video/x-bayer (non-standard)  | NO        | NO        | custom plugin required     |
-| BayerRG10/12    | video/x-bayer (non-standard)  | NO        | NO        | custom plugin required     |
-| BGR8 / RGB8     | video/x-raw,format=BGR or RGB | n/a       | OK direct | pylonsrc->nvvidconv->enc   |
-| YCbCr422_8      | video/x-raw,format=YUY2       | n/a       | OK direct | pylonsrc->nvvidconv->enc   |
-| GRAY8 (mono)    | video/x-raw,format=GRAY8      | n/a       | OK direct | pylonsrc->nvvidconv->enc   |
+| Format          | GStreamer media type           | NVMM input | nvvidconv | Pipeline path               |
+|-----------------|-------------------------------|------------|-----------|-----------------------------|
+| YCbCr422_8      | video/x-raw,format=YUY2       | YES        | OK        | **pylonsrc->nvvidconv->enc (default)** |
+| GRAY8 (mono)    | video/x-raw,format=GRAY8      | YES        | OK        | pylonsrc->nvvidconv->enc    |
+| BGR8 / RGB8     | video/x-raw,format=BGR or RGB | NO         | n/a       | Not usable in NVMM mode     |
 
 **USB buffer memory (`usbfs_memory_mb`):** The Linux kernel default is 16 MB.
 The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
-At 12 MP BayerRG8 that is 10 x 12.3 MB = ~123 MB minimum. Set to **256 MB**
-for a single camera (2x headroom), or 512 MB for two cameras on one host.
+At 4096x2160 YUY2 NV12 that is 10 x ~18 MB = ~180 MB minimum. Set to **256 MB**
+for a single camera (1.4x headroom), or 512 MB for two cameras on one host.
 Basler's blanket recommendation of 1000 MB is sized for multi-camera setups
 and is excessive for a single camera.
 
@@ -214,15 +205,10 @@ echo 256 > /sys/module/usbcore/parameters/usbfs_memory_mb
 
 ---
 
-**nvvidconv:** Input must be in system RAM (`video/x-raw` without NVMM qualifier).
-Output is placed in NVMM (`video/x-raw(memory:NVMM)`) using `nvbuf-memory-type=4`
-(NVBUF_MEM_SURFACE_ARRAY -- the correct Jetson surface type). All elements after
-nvvidconv access NVMM directly with zero additional CPU copies.
-
-**bayer2rgb:** Standard GStreamer element from `gst-plugins-bad`. Implements
-bilinear Bayer demosaic in software using NEON SIMD on A78AE cores. At 12MP x 25fps
-(~300 Mpx/s) this uses approximately 1-2 CPU cores. For more than two simultaneous
-cameras, a custom CUDA-based debayer element should be considered.
+**nvvidconv:** Accepts YUY2 (and other YUV formats) in NVMM and converts to NV12 in NVMM
+using the VIC hardware block (`nvbuf-memory-type=4` = NVBUF_MEM_SURFACE_ARRAY). All
+elements after nvvidconv operate on NVMM buffers with zero CPU copies. Note: packed
+RGB formats (BGR8/RGB8) are NOT accepted by VIC as NVMM input -- use YUY2 instead.
 
 ---
 
@@ -295,19 +281,16 @@ For H.265 streams (when using `--h265` flag) replace `rtph264depay`, `h264parse`
 
 ---
 
-## 8 - Notes on 12-bit Bayer over Gen1
+## 8 - Camera Pixel Format Configuration
 
-BayerRG12Packed at 4096x3000 x 25fps = ~461 MB/s, which exceeds the Gen1
-practical ceiling of ~380 MB/s. Not feasible on Gen1.
-
-If 12-bit dynamic range is required on Gen1, configure the pylon SDK to perform
-in-camera debayering and output BGR8/RGB8. The camera FPGA handles the demosaic
-and sends the result over USB. This trades bandwidth savings for 3 bytes/pixel.
-
-To configure in-camera debayering:
+The pipeline uses YCbCr422_8 (YUY2) -- the only color format that works in NVMM mode
+with nvvidconv on Jetson. Configure via pylon Viewer (persistent, stored in camera):
 
 | Method       | Setting |
 |--------------|---------|
-| pylon Viewer | Camera Features -> PixelFormat -> YCbCr422_8 (YUY2, recommended) or BGR8 |
-| GenICam      | `PixelFormat = "YCbCr422_8"` (or `"BGR8"`, `"RGB8"`) |
-| Script       | `PIXEL_FORMAT=YUY2` (default) -- must be VIC-compatible in NVMM (not BGR/RGB) |
+| pylon Viewer | Camera Features → PixelFormat → YCbCr422_8 |
+| Script       | `PIXEL_FORMAT=YUY2` (default, do not change) |
+
+**Note:** pylonsrc does not expose a GStreamer property for pixel format -- it must be
+set in pylon Viewer or via the camera's persistent user set. Without explicit format
+constraint in caps, pylonsrc defaults to GRAY8 (monochrome).

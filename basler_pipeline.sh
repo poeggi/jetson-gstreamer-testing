@@ -15,15 +15,9 @@
 #   3. Every element after nvvidconv (encoder, parser, payloader, sink)
 #      operates on NVMM buffers. No CPU copies occur past this point.
 #
-# Capture modes:
-#   color -- pylonsrc outputs BGR/RGB (3 bytes/px). Full pipeline:
-#              pylonsrc -> nvvidconv(NVMM) -> nvv4l2encXXX
-#            Simplest path but highest USB bandwidth cost.
-#
-#   bayer -- pylonsrc outputs BayerRG8 (1 byte/px, ~3x less USB bandwidth).
-#              pylonsrc -> bayer2rgb(CPU NEON SIMD) -> nvvidconv(NVMM) -> enc
-#            CPU debayer cost at 12MP/25fps is ~1-2 A78AE cores.
-#            Required for 12 MP at 25 fps on USB 3.1 Gen1 (~380 MB/s ceiling).
+# Capture: color YUY2 -- pylonsrc outputs YCbCr422_8 (YUY2) directly into NVMM.
+#   Pipeline: pylonsrc(YUY2/NVMM) -> nvvidconv(NV12/NVMM) -> nvv4l2encXXX
+#   Camera runs at hardware-fixed 30fps; framerate in caps is metadata only.
 #
 # See README.md for:
 #   - Camera spec table
@@ -96,7 +90,7 @@ BITRATE=28000000
 # Rule of thumb: set equal to FRAMERATE for 1 IDR per second (good for RTSP).
 # Lower -> faster stream join and packet-loss recovery, slightly higher bitrate.
 # Higher -> lower overhead; avoid going above 2x FRAMERATE for RTSP streams.
-IFRAME_INTERVAL=25
+IFRAME_INTERVAL=30
 
 # Rate control mode:
 #   1 = CBR (constant bitrate) -- recommended for RTSP.
