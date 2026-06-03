@@ -7,7 +7,7 @@
 # the gst_element_make_from_uri CRITICAL assertion or a syntax error.
 #
 # Mirrors basler_pipeline.sh exactly: same elements, same properties, same
-# default mode (bayer capture, H.265, fakesink).
+# default mode (color NVMM capture, H.265, fakesink).
 #
 # Must be run on the Jetson itself. Camera must be connected for sections
 # marked "(camera required)".
@@ -141,12 +141,6 @@ run_test "videotestsrc ! identity ! fakesink" \
 run_test "videotestsrc ! queue ! fakesink" \
   "videotestsrc num-buffers=${BUFFERS} \
    ! ${Q} \
-   ! fakesink sync=false"
-
-run_test "videotestsrc ! bayer2rgb ! fakesink" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-raw,format=GRAY8,width=${W},height=${H},framerate=${FPS}/1 \
-   ! bayer2rgb \
    ! fakesink sync=false"
 
 
@@ -510,48 +504,6 @@ else
   echo "  [SKIP] Color path -- NVMM caps not available (upgrade pylon plugin)"
 fi
 
-# Bayer path (reference -- CAPTURE_MODE=bayer, Gen1 USB or CPU-debayer preferred)
-echo ""
-echo "  Bayer path (reference -- CAPTURE_MODE=bayer)"
-STOP=0
-
-run_test "pylonsrc ! video/x-bayer caps ! fakesink" \
-  "pylonsrc num-buffers=${BUFFERS} \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
-   ! fakesink sync=false"
-
-run_test "pylonsrc ! identity name=cam check-imperfect-timestamp=true" \
-  "pylonsrc num-buffers=${BUFFERS} \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
-   ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! fakesink sync=false"
-
-run_test "pylonsrc ! queue ! bayer2rgb ! queue ! nvvidconv ! fakesink" \
-  "pylonsrc num-buffers=${BUFFERS} \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
-   ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
-   ! ${Q} \
-   ! nvvidconv nvbuf-memory-type=4 \
-   ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-   ! fakesink sync=false"
-
-run_test "pylonsrc full bayer pipeline (small res)" \
-  "pylonsrc num-buffers=${BUFFERS} \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
-   ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
-   ! ${Q} \
-   ! nvvidconv nvbuf-memory-type=4 \
-   ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-   ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-   ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
-   ! identity name=post-enc silent=true check-imperfect-timestamp=true \
-   ! ${Q_ENC_OUT} \
-   ! h265parse config-interval=-1 \
-   ! fakesink sync=false"
 
 
 # ==============================================================================

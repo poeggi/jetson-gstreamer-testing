@@ -21,6 +21,7 @@ set -euo pipefail
 # ==============================================================================
 
 QUIET=0
+FATAL_ONLY=0
 CAPTURE_MODE="color"
 ENCODER="h265"
 OUTPUT_MODE="rtsp"
@@ -28,11 +29,12 @@ OUTPUT_MODE="rtsp"
 for arg in "$@"; do
   case "$arg" in
     --quiet)          QUIET=1 ;;
+    --fatal-only)     QUIET=1; FATAL_ONLY=1 ;;
     bayer|color)      CAPTURE_MODE="$arg" ;;
     h264|h265)        ENCODER="$arg" ;;
     rtsp|fakesink)    OUTPUT_MODE="$arg" ;;
     *)
-      echo "Usage: $0 [--quiet] [bayer|color] [h264|h265] [rtsp|fakesink]" >&2
+      echo "Usage: $0 [--quiet] [--fatal-only] [bayer|color] [h264|h265] [rtsp|fakesink]" >&2
       exit 1
       ;;
   esac
@@ -49,7 +51,8 @@ WARNINGS=0
 section() { [[ "$QUIET" -eq 0 ]] && echo "" && echo "--- $1 ---"; return 0; }
 ok()      { [[ "$QUIET" -eq 0 ]] && echo "  [OK]   $1"; return 0; }
 info()    { [[ "$QUIET" -eq 0 ]] && echo "  [INFO] $1"; return 0; }
-warn()    { echo "  [WARN] $1"; WARNINGS=$(( WARNINGS + 1 )); }
+# warn is suppressed in --fatal-only mode but the count is always incremented
+warn()    { [[ "$FATAL_ONLY" -eq 0 ]] && echo "  [WARN] $1"; WARNINGS=$(( WARNINGS + 1 )); }
 fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
 
 
@@ -159,9 +162,6 @@ fi
 check_plugin nvvidconv  "re-run JetPack installer"
 check_plugin identity   "sudo apt install gstreamer1.0-plugins-base"
 
-if [[ "$CAPTURE_MODE" == "bayer" ]]; then
-  check_plugin bayer2rgb "sudo apt install gstreamer1.0-plugins-bad"
-fi
 
 case "$ENCODER" in
   h264)
@@ -314,11 +314,11 @@ section "Jetson power and clock configuration"
 # nvpmodel: 15W is the design target across all supported modules:
 #   Orin NX 8GB, Orin NX 16GB, and future NVENC-capable Orin Nano variants.
 # All have a dedicated 15W mode separate from MAXN. MAXN and MAXN_SUPER
-# draw 20-28W and are not required -- bayer2rgb uses ~1 A78AE core and NVENC
-# has comfortable headroom at reduced clocks. The watt value is parsed from
-# the mode name string (MODE_15W, 7W, etc.); MAXN/MAXN_SUPER are matched by
-# name first. Modes at or below 10W (NX 10W, Nano 7W) are flagged as
-# potentially marginal for sustained bayer capture at full resolution/fps.
+# draw 20-28W and are not required -- color mode NVENC has comfortable
+# headroom at reduced clocks. The watt value is parsed from the mode name
+# string (MODE_15W, 7W, etc.); MAXN/MAXN_SUPER are matched by name first.
+# Modes at or below 10W (NX 10W, Nano 7W) are flagged as potentially
+# marginal for sustained 4K/25fps color capture and encode.
 
 if command -v nvpmodel >/dev/null 2>&1; then
   POWER_LINE=$(nvpmodel -q 2>/dev/null | grep "NV Power Mode" | head -1 || true)
@@ -331,9 +331,8 @@ if command -v nvpmodel >/dev/null 2>&1; then
     info "      List available modes: sudo nvpmodel --list-modes"
   elif [[ -n "$_PMODE_W" && "$_PMODE_W" -le 10 ]]; then
     warn "nvpmodel: $POWER_LINE"
-    warn "     ${_PMODE_W}W may be marginal for bayer2rgb at 12MP/25fps."
-    warn "     Color mode (CAPTURE_MODE=color) bypasses CPU debayer and is safe at ${_PMODE_W}W."
-    warn "     For bayer mode consider the 15W mode: sudo nvpmodel --list-modes"
+    warn "     ${_PMODE_W}W may be marginal for 4K/25fps color NVMM capture and encode."
+    warn "     Consider the 15W mode: sudo nvpmodel --list-modes"
   else
     ok "nvpmodel: $POWER_LINE -- recommended production target for this pipeline"
   fi
@@ -689,18 +688,20 @@ fi
 # SUMMARY
 # ==============================================================================
 
-echo ""
-echo "======================================================"
-if [[ "$FAILURES" -gt 0 ]]; then
-  echo "  RESULT: ${FAILURES} failure(s), ${WARNINGS} warning(s)"
-  echo "  Fix failures before running the pipeline."
-elif [[ "$WARNINGS" -gt 0 ]]; then
-  echo "  RESULT: 0 failures, ${WARNINGS} warning(s)"
-  echo "  Warnings do not block launch but may affect performance."
-else
-  echo "  RESULT: All checks passed."
+if [[ "$FAILURES" -gt 0 || "$FATAL_ONLY" -eq 0 ]]; then
+  echo ""
+  echo "======================================================"
+  if [[ "$FAILURES" -gt 0 ]]; then
+    echo "  RESULT: ${FAILURES} failure(s), ${WARNINGS} warning(s)"
+    echo "  Fix failures before running the pipeline."
+  elif [[ "$WARNINGS" -gt 0 ]]; then
+    echo "  RESULT: 0 failures, ${WARNINGS} warning(s)"
+    echo "  Warnings do not block launch but may affect performance."
+  else
+    echo "  RESULT: All checks passed."
+  fi
+  echo "======================================================"
+  echo ""
 fi
-echo "======================================================"
-echo ""
 
 [[ "$FAILURES" -eq 0 ]]

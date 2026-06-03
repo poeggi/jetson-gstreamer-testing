@@ -180,7 +180,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export RTSP_HOST RTSP_PORT
-if ! "${SCRIPT_DIR}/check_system.sh" --quiet "$CAPTURE_MODE" "$ENCODER" "$OUTPUT_MODE"; then
+if ! "${SCRIPT_DIR}/check_system.sh" --fatal-only "$CAPTURE_MODE" "$ENCODER" "$OUTPUT_MODE"; then
   echo "ERROR: Pre-flight checks failed. Run ./check_system.sh for details." >&2
   exit 1
 fi
@@ -204,25 +204,6 @@ fi
   echo "ERROR: OUTPUT_MODE must be 'fakesink' or 'rtsp'. Got: '${OUTPUT_MODE}'" >&2
   exit 1
 }
-
-
-# ==============================================================================
-# NVMM CAPABILITY CHECK (color mode only)
-# In color mode, pylonsrc must advertise NVMM caps so frames are placed
-# directly into GPU memory with no system RAM intermediate.
-# Bayer mode is unaffected: nvvidconv always handles the one unavoidable
-# system RAM -> NVMM copy after bayer2rgb, regardless of pylonsrc NVMM caps.
-# ==============================================================================
-
-if [[ "$CAPTURE_MODE" == "color" ]]; then
-  if ! gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
-    echo "ERROR: pylonsrc does not advertise NVMM caps on this system." >&2
-    echo "       Color capture cannot avoid a system RAM -> GPU copy per frame." >&2
-    echo "       Upgrade the pylon GStreamer plugin:" >&2
-    echo "       github.com/basler/gst-plugin-pylon/releases" >&2
-    exit 1
-  fi
-fi
 
 
 # ==============================================================================
