@@ -65,8 +65,8 @@ WIDTH=4096
 HEIGHT=2160
 
 # Frame rate in frames per second.
-# 4096x2160 YUY2 (2 bytes/px) at 25fps = ~442 MB/s -- requires USB 3.1 Gen2.
-FRAMERATE=25
+# 4096x2160 YUY2 (2 bytes/px) at 30fps = ~530 MB/s -- requires USB 3.1 Gen2.
+FRAMERATE=30
 
 # Pixel format for color capture.
 # Must be a format that nvvidconv's VIC hardware accepts as NVMM input.
@@ -83,7 +83,7 @@ PIXEL_FORMAT="YUY2"
 # "h265"  H.265 HEVC Main Profile. ~40-50% smaller at equal quality.
 #         Recommended for 4K DCI -- the bitrate saving is significant at this size.
 #         Verify your RTSP client / NVR supports HEVC before deploying.
-ENCODER="h265"
+ENCODER="h264"
 
 # Target encode bitrate in bits per second.
 # 28 Mbps H.265 = high quality at 4096x2160 / 25fps; artefacts not visible
@@ -264,7 +264,8 @@ case "$ENCODER" in
       profile=4 \
       iframeinterval=${IFRAME_INTERVAL} \
       insert-sps-pps=1 \
-      maxperf-enable=1"
+      maxperf-enable=1 \
+      preset-level=1"
     PARSE_ELEMENT="h264parse config-interval=-1"
     RTP_ELEMENT="rtph264pay pt=96 config-interval=-1"
     ;;
@@ -281,7 +282,8 @@ case "$ENCODER" in
       profile=0 \
       iframeinterval=${IFRAME_INTERVAL} \
       insert-sps-pps=1 \
-      maxperf-enable=1"
+      maxperf-enable=1 \
+      preset-level=1"
     PARSE_ELEMENT="h265parse config-interval=-1"
     RTP_ELEMENT="rtph265pay pt=96 config-interval=-1"
     ;;
