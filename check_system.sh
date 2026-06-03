@@ -91,7 +91,7 @@ info "GStreamer: ${_GST_VER:-not found}"
 if [[ -n "$_PYLON_CAPS" ]]; then
   _PYLON_VER=$(echo "$_PYLON_CAPS" | awk '/^  Version/{print $2; exit}')
   _NVMM="not supported"
-  echo "$_PYLON_CAPS" | grep -qi "memory:NVMM" && _NVMM="supported"
+  if echo "$_PYLON_CAPS" | grep -qi "memory:NVMM"; then _NVMM="supported"; fi
   info "Basler pylon plugin: ${_PYLON_VER:-unknown}  |  NVMM: ${_NVMM}"
 else
   info "Basler pylon plugin: not found or failed to load"
