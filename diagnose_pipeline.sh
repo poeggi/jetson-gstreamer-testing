@@ -37,7 +37,7 @@ Q_ENC_OUT="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
 # Detect pylonsrc NVMM support (same check as check_system.sh and basler_pipeline.sh)
 PYLONSRC_NVMM=0
 if gst-inspect-1.0 pylonsrc >/dev/null 2>&1 && \
-   gst-inspect-1.0 pylonsrc 2>/dev/null | grep -qi "memory:NVMM"; then
+   gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
   PYLONSRC_NVMM=1
 fi
 

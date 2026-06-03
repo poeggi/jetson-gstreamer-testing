@@ -212,7 +212,7 @@ fi
 # system RAM; no NVMM-capable Bayer debayer exists in standard GStreamer).
 # ==============================================================================
 
-if ! gst-inspect-1.0 pylonsrc 2>/dev/null | grep -qi "memory:NVMM"; then
+if ! gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
   echo "ERROR: pylonsrc does not advertise NVMM caps on this system." >&2
   echo "       Color capture cannot avoid a system RAM -> GPU copy per frame." >&2
   echo "       Upgrade the pylon GStreamer plugin:" >&2

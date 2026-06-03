@@ -66,8 +66,8 @@ fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
 # Full set -euo pipefail is restored at the start of section 1.
 set +o pipefail
 
-# Compute pylonsrc caps once here; reused in section 1 NVMM check and in
-# the version display below, avoiding a second gst-inspect-1.0 invocation.
+# Compute pylonsrc caps once here for the version display below.
+# Section 1 runs its own fresh gst-inspect under pipefail.
 _PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
 
 section "Platform and plugin versions"
@@ -141,7 +141,7 @@ check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.co
 # nvvidconv (one full-frame DMA per frame). bayer mode still requires one
 # system RAM -> NVMM copy regardless (bayer2rgb has no NVMM counterpart).
 if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
-  if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -qi "memory:NVMM"; then
+  if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
     ok "pylonsrc NVMM caps: zero-copy color capture path available"
   else
     fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
