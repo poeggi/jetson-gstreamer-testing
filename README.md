@@ -2,7 +2,7 @@
 
 **Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 5.x / 6.x) &nbsp;|&nbsp; **Script:** `basler_pipeline.sh`
 
-Zero-copy GStreamer pipeline capturing 12 MP Bayer over USB3, encoding to H.265
+Zero-copy GStreamer pipeline capturing 12 MP color (YUY2) over USB3, encoding to H.264
 via NVENC hardware, and streaming over RTSP. Includes a system health check script
 and a full bandwidth and bitrate reference for this camera and interface.
 
@@ -28,7 +28,7 @@ and a full bandwidth and bitrate reference for this camera and interface.
 The "30" in the model name specifies the maximum frame rate at full resolution
 over USB 3.1 Gen1. This rate is achievable ONLY with BayerRG8 (1 byte/px =
 369 MB/s -- just inside the Gen1 practical ceiling of ~380 MB/s).
-The script defaults to 25 fps to provide comfortable headroom on Gen1.
+The script runs at 30 fps (camera hardware-fixed rate; framerate caps are metadata only).
 
 ---
 
@@ -103,7 +103,7 @@ Bandwidth formula: `width x height x bytes_per_pixel x fps / 1,000,000`
 - ~40-50% lower bitrate for equal perceived quality
 - Preferred at 4K and above where bitrate savings are most significant
 - Slightly higher encode latency (larger GOP processing)
-- Recommended for this project (4K DCI 4096x2160 at 25fps -- see script default)
+- Recommended for archival or NVR where bitrate savings justify the higher decode requirement
 - Verify your RTSP client / NVR supports H.265 before deploying
 
 ### Bitrate table -- H.264 High Profile
@@ -121,7 +121,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 2592 x 1944 |  30 |  12 Mbps  |   22 Mbps    | 5 MP                |
 | 3840 x 2160 |  30 |  25 Mbps  |   45 Mbps    | 4K UHD              |
 | 3840 x 2160 |  60 |  40 Mbps  |   70 Mbps    | 4K UHD, Gen2 only                          |
-| 4096 x 2160 |  25 |  22 Mbps  |   40 Mbps    | 4K DCI -- **script default**               |
+| 4096 x 2160 |  30 |  28 Mbps  |   50 Mbps    | 4K DCI -- **script default (H.264)**       |
 | 4096 x 3000 |  25 |  35 Mbps  |   62 Mbps    | 12 MP full sensor (Level 6.0 req.)         |
 | 4096 x 3000 |  30 |  42 Mbps  |   74 Mbps    | 12 MP full sensor (Level 6.0 req.), Gen2   |
 
@@ -134,7 +134,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 2592 x 1944 |  30 |   7 Mbps  |   14 Mbps    | 5 MP                    |
 | 3840 x 2160 |  30 |  15 Mbps  |   28 Mbps    | 4K UHD                  |
 | 3840 x 2160 |  60 |  22 Mbps  |   40 Mbps    | 4K UHD, Gen2 only                          |
-| 4096 x 2160 |  25 |  13 Mbps  |   28 Mbps    | 4K DCI -- **script default** (28 Mbps set) |
+| 4096 x 2160 |  30 |  16 Mbps  |   30 Mbps    | 4K DCI (--h265 flag)                       |
 | 4096 x 3000 |  25 |  20 Mbps  |   38 Mbps    | 12 MP full sensor (Level 6.0 req.)         |
 | 4096 x 3000 |  30 |  25 Mbps  |   45 Mbps    | 12 MP full sensor (Level 6.0 req.), Gen2   |
 
@@ -150,7 +150,7 @@ allocates more bits to complex frames. Can produce momentary bandwidth spikes
 
 ### Keyframe interval
 
-Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (25 at 25 fps -- the script default).
+Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (30 at 30 fps -- the script default).
 
 - Shorter interval: faster stream join and packet-loss recovery; higher overhead
 - Longer interval: lower overhead; slower recovery -- avoid above 2x FRAMERATE for RTSP over WAN
@@ -159,7 +159,7 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (25 at 25 fps -- the
 
 ## 5 - Recommended Configurations
 
-**Note:** Color mode (BGR8) at 4096 x 2160 = ~664 MB/s — Gen2 only; see Gen2 table.
+**Note:** Color mode (YUY2) at 4096 x 2160 x 30fps = ~530 MB/s — confirmed working on BOXER-8651AI Gen1 host controller despite exceeding the conservative Basler ~380 MB/s ceiling.
 
 ### USB 3.1 Gen1 -- Jetson Orin NX onboard ports
 
@@ -177,7 +177,7 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (25 at 25 fps -- the
 
 | Goal                    | Format        | Resolution  | FPS | Bandwidth | Notes                      |
 |-------------------------|---------------|-------------|-----|-----------|----------------------------|
-| 4K DCI color (default)  | BGR8          | 4096 x 2160 |  25 | 664 MB/s  | OK -- zero-copy NVMM       |
+| 4K DCI color (default)  | YCbCr422_8    | 4096 x 2160 |  30 | 530 MB/s  | OK -- zero-copy NVMM       |
 | 12 MP at 30 fps         | BayerRG8      | 4096 x 3000 |  30 | 369 MB/s  | OK -- sensor limit         |
 | 12 MP 12-bit at 20 fps  | BayerRG12Pack | 4096 x 3000 |  20 | 369 MB/s  | OK -- custom debayer req.  |
 | 4K all formats          | BayerRG12Pack | 3840 x 2160 |  30 | 373 MB/s  | (~) -- custom debayer req. |
@@ -228,27 +228,32 @@ cameras, a custom CUDA-based debayer element should be considered.
 
 ## 7 - RTSP Client Configuration (Low Latency)
 
-The pipeline sender contributes ~85-130ms of latency (camera exposure + NVENC).
+The pipeline sender contributes ~60-100ms of latency (camera exposure + NVENC H.264 ULL preset).
 Most RTSP players add a large jitter buffer on top by default and must be tuned.
 
-| Source          | Latency     |
-|-----------------|-------------|
-| Sender pipeline | ~85-130ms   |
-| Receiver buffer | ~200-300ms  |
-| **Total**       | **~300-430ms** |
+| Source          | Latency        |
+|-----------------|----------------|
+| Camera + USB    | ~33ms          |
+| nvvidconv + enc | ~20-40ms       |
+| Sender total    | ~55-75ms       |
+| VLC buffer      | 200ms          |
+| H.264 decode    | ~10-20ms       |
+| **Total**       | **~265-295ms** |
 
 ### VLC (recommended for quick testing)
 
+Use the provided `view_stream.ps1` (Windows) or `view_stream.sh` (Linux) scripts, or manually:
+
 ```
-vlc --rtsp-tcp --network-caching=300 --clock-synchro=0 --no-audio rtsp://127.0.0.1:8554/stream
+vlc --rtsp-tcp --network-caching=200 --clock-synchro=0 --no-audio rtsp://192.168.1.252:8554/main
 ```
 
-| Parameter            | Effect |
-|----------------------|--------|
-| `--rtsp-tcp`         | Force RTP over TCP. Matches the sender (`protocols=tcp`). Prevents UDP packet loss artefacts. |
-| `--network-caching=300` | Jitter buffer in ms. 300ms is stable on a direct LAN connection. Lower to 150ms on loopback only. Do not go below 100ms -- VLC will stutter under any load. |
-| `--clock-synchro=0`  | Disables VLC clock sync against the stream. Without this, VLC accumulates extra buffer trying to lock to a clock signal that a live RTSP stream may not provide. |
-| `--no-audio`         | Suppresses audio-track error messages (video-only stream) and prevents audio buffering from adding delay. |
+| Parameter               | Effect |
+|-------------------------|--------|
+| `--rtsp-tcp`            | Force RTP over TCP. Matches the sender (`protocols=tcp`). Prevents UDP packet loss artefacts. |
+| `--network-caching=200` | Jitter buffer in ms. 200ms confirmed minimum for H.265; H.264 is stable at 200ms. Do not go below 200ms -- VLC will drop frames. |
+| `--clock-synchro=0`     | Disables VLC clock sync against the stream. Without this, VLC accumulates extra buffer trying to lock to a clock signal that a live RTSP stream may not provide. |
+| `--no-audio`            | Suppresses audio-track error messages (video-only stream) and prevents audio buffering from adding delay. |
 
 For H.265 streams verify VLC has a working H.265 decoder:
 `VLC -> Tools -> Codec Information` -- look for HEVC or H.265 in the Codec field.
@@ -260,10 +265,10 @@ Software decode (any Linux machine):
 
 ```bash
 gst-launch-1.0 \
-  rtspsrc location=rtsp://127.0.0.1:8554/stream latency=200 protocols=tcp \
-  ! rtph265depay \
-  ! h265parse \
-  ! avdec_h265 \
+  rtspsrc location=rtsp://192.168.1.252:8554/main latency=200 protocols=tcp \
+  ! rtph264depay \
+  ! h264parse \
+  ! avdec_h264 \
   ! videoconvert \
   ! autovideosink sync=false
 ```
@@ -272,15 +277,15 @@ Hardware decode (receiving Jetson with NVDEC):
 
 ```bash
 gst-launch-1.0 \
-  rtspsrc location=rtsp://127.0.0.1:8554/stream latency=200 protocols=tcp \
-  ! rtph265depay \
-  ! h265parse \
+  rtspsrc location=rtsp://192.168.1.252:8554/main latency=200 protocols=tcp \
+  ! rtph264depay \
+  ! h264parse \
   ! nvv4l2decoder \
   ! nv3dsink sync=false
 ```
 
-For H.264 streams replace `rtph265depay`, `h265parse`, `avdec_h265` with
-`rtph264depay`, `h264parse`, `avdec_h264` (or keep `nvv4l2decoder` -- it handles both codecs).
+For H.265 streams (when using `--h265` flag) replace `rtph264depay`, `h264parse`, `avdec_h264` with
+`rtph265depay`, `h265parse`, `avdec_h265` (or keep `nvv4l2decoder` -- it handles both codecs).
 
 | Parameter      | Effect |
 |----------------|--------|
@@ -303,6 +308,6 @@ To configure in-camera debayering:
 
 | Method       | Setting |
 |--------------|---------|
-| pylon Viewer | Analog Controls -> Pixel Format -> BGR8 or RGB8 |
-| GenICam      | `PixelFormat = "BGR8"` (or `"RGB8"`, `"YCbCr422_8"`) |
-| Script       | `CAPTURE_MODE=color`, `PIXEL_FORMAT=BGR` |
+| pylon Viewer | Camera Features -> PixelFormat -> YCbCr422_8 (YUY2, recommended) or BGR8 |
+| GenICam      | `PixelFormat = "YCbCr422_8"` (or `"BGR8"`, `"RGB8"`) |
+| Script       | `PIXEL_FORMAT=YUY2` (default) -- must be VIC-compatible in NVMM (not BGR/RGB) |
