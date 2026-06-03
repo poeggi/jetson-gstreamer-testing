@@ -628,6 +628,30 @@ else
   warn "     Check: lsusb | grep ${BASLER_VID}"
 fi
 
+# pylonsrc framerate control check.
+# In gst-plugin-pylon, framerate is controlled via GStreamer caps negotiation only
+# (no named property). Some plugin versions silently ignore the caps framerate and
+# run at the camera's hardware maximum. Test by requesting a reduced framerate
+# and comparing against the negotiated result.
+if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+  _TEST_FPS="15"
+  _CAPS_OUT=$(gst-launch-1.0 -v pylonsrc num-buffers=1 \
+    ! "video/x-raw(memory:NVMM),format=YUY2,framerate=${_TEST_FPS}/1" \
+    ! fakesink 2>&1)
+  _NEG_FPS=$(echo "$_CAPS_OUT" | grep "pylonsrc0.GstPad:src: caps" \
+    | grep -o "framerate=(fraction)[^,)]*" | sed 's/framerate=(fraction)//')
+  if [[ -z "$_NEG_FPS" ]]; then
+    info "pylonsrc framerate control: could not determine (camera may not be connected)"
+  elif [[ "$_NEG_FPS" == "${_TEST_FPS}/1" ]]; then
+    ok "pylonsrc framerate control: caps negotiation supported (${_NEG_FPS} fps honored)"
+  else
+    warn "pylonsrc framerate control: NOT supported by this plugin version"
+    warn "     Requested ${_TEST_FPS}/1 fps via caps, camera negotiated ${_NEG_FPS}"
+    warn "     Camera runs at hardware-fixed rate regardless of caps framerate field."
+    warn "     Upgrade gst-plugin-pylon: https://github.com/basler/gst-plugin-pylon/releases"
+  fi
+fi
+
 
 # ==============================================================================
 # 7 - MEMORY: AVAILABLE RAM, CMA, AND SWAP
