@@ -205,6 +205,22 @@ echo 256 > /sys/module/usbcore/parameters/usbfs_memory_mb
 
 ---
 
+**Basler Compression Beyond (lossless in-camera compression):**
+The a2A4096-30ucPRO supports Compression Beyond — a hardware lossless codec in the
+camera FPGA that reduces USB bandwidth by 2-3× depending on scene content. This may
+explain why YUY2 at 4096x2160/30fps (~530 MB/s theoretical) works on USB 3.1 Gen1
+(~450 MB/s physical ceiling): the actual USB transfer is compressed data, transparently
+decompressed by pylonsrc before entering GStreamer.
+
+Configure in pylon Viewer:
+- `ImageCompressionMode` → `BaslerCompressionBeyond`
+- `ImageCompressionRateOption` → `Lossless`
+
+gst-plugin-pylon handles decompression automatically (added in v1.0, issue #98).
+Check status: `gst-inspect-1.0 pylonsrc | grep -i compress`
+
+---
+
 **nvvidconv:** Accepts YUY2 (and other YUV formats) in NVMM and converts to NV12 in NVMM
 using the VIC hardware block (`nvbuf-memory-type=4` = NVBUF_MEM_SURFACE_ARRAY). All
 elements after nvvidconv operate on NVMM buffers with zero CPU copies. Note: packed

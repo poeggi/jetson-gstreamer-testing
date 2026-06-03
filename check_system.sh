@@ -653,6 +653,31 @@ if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
 fi
 
 
+# Basler Compression Beyond check.
+# The a2A4096-30ucPRO (PRO variant) supports hardware lossless compression in the
+# camera FPGA, reducing USB bandwidth by 2-3x. gst-plugin-pylon decompresses
+# transparently. This may explain why 530 MB/s YUY2 works on Gen1.
+# Check: (1) plugin supports decompression, (2) camera has it enabled.
+if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+  _COMPRESS_SUPPORT=$(gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "compress" || true)
+  if [[ -n "$_COMPRESS_SUPPORT" ]]; then
+    ok "pylonsrc Compression Beyond: plugin supports decompression"
+    # Check if camera has it enabled by inspecting negotiated caps for compression hint
+    _COMP_OUT=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! fakesink 2>&1)
+    if echo "$_COMP_OUT" | grep -qi "compress"; then
+      ok "Compression Beyond: active on camera -- USB bandwidth is reduced"
+    else
+      info "Compression Beyond: plugin supports it but camera setting unknown"
+      info "     Enable in pylon Viewer: ImageCompressionMode=BaslerCompressionBeyond"
+      info "     ImageCompressionRateOption=Lossless  (2-3x USB bandwidth reduction)"
+    fi
+  else
+    info "Compression Beyond: not supported by this plugin version"
+    info "     Upgrade gst-plugin-pylon for lossless USB bandwidth reduction:"
+    info "     https://github.com/basler/gst-plugin-pylon/releases"
+  fi
+fi
+
 # ==============================================================================
 # 7 - MEMORY: AVAILABLE RAM, CMA, AND SWAP
 # Pipeline buffers, NVMM surfaces, and encoder working memory compete for RAM.
