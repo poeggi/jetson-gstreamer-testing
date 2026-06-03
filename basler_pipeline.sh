@@ -296,11 +296,7 @@ case "$ENCODER" in
       insert-sps-pps=1 \
       maxperf-enable=1"
     PARSE_ELEMENT="h264parse config-interval=-1"
-    # Explicit RTP caps after rtph264pay are required on some JetPack/GStreamer
-    # versions: rtspclientsink uses request pads and needs the caps fully resolved
-    # before it can accept the link. Without them, pad negotiation fails at
-    # pipeline construction time with "could not link rtph264pay to rtspclientsink".
-    RTP_ELEMENT="rtph264pay pt=96 config-interval=-1 ! application/x-rtp,media=video,payload=96,clock-rate=90000,encoding-name=H264"
+    RTP_ELEMENT="rtph264pay pt=96 config-interval=-1"
     ;;
   h265)
     # nvv4l2h265enc -- NVENC H.265 hardware encoder
@@ -317,8 +313,7 @@ case "$ENCODER" in
       insert-sps-pps=1 \
       maxperf-enable=1"
     PARSE_ELEMENT="h265parse config-interval=-1"
-    # See H.264 note above -- same caps fix required for H.265.
-    RTP_ELEMENT="rtph265pay pt=96 config-interval=-1 ! application/x-rtp,media=video,payload=96,clock-rate=90000,encoding-name=H265"
+    RTP_ELEMENT="rtph265pay pt=96 config-interval=-1"
     ;;
 esac
 
@@ -486,14 +481,10 @@ IDN_POST_ENC="identity name=post-enc silent=true check-imperfect-timestamp=true"
 # No leaky: dropping encoded frames would produce a corrupt RTSP stream.
 Q_ENC_OUT="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
 
-read -r -d '' PIPELINE << PIPELINE_EOF || true
-${SRC_SEGMENT} \
-  ! ${ENC_ELEMENT} \
-  ! ${IDN_POST_ENC} \
-  ! ${Q_ENC_OUT} \
-  ! ${PARSE_ELEMENT} \
-  ! ${OUTPUT_SEGMENT}
-PIPELINE_EOF
+# Single-line assignment so word-splitting of $PIPELINE produces clean tokens.
+# A heredoc with \ line continuations embeds literal backslashes in the string;
+# after word-splitting those become standalone \ tokens that confuse gst-launch.
+PIPELINE="${SRC_SEGMENT} ! ${ENC_ELEMENT} ! ${IDN_POST_ENC} ! ${Q_ENC_OUT} ! ${PARSE_ELEMENT} ! ${OUTPUT_SEGMENT}"
 
 
 # ==============================================================================

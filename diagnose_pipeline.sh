@@ -365,7 +365,7 @@ run_test "+ queue(post-enc output)" \
    ! ${Q_ENC_OUT} \
    ! fakesink sync=false"
 
-run_test "+ h265parse config-interval=-1 (full color pipeline complete)" \
+run_test "+ h265parse config-interval=-1" \
   "videotestsrc num-buffers=${BUFFERS} \
    ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
@@ -377,6 +377,21 @@ run_test "+ h265parse config-interval=-1 (full color pipeline complete)" \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
    ! ${Q_ENC_OUT} \
    ! h265parse config-interval=-1 \
+   ! fakesink sync=false"
+
+run_test "+ rtph265pay pt=96 config-interval=-1 (full chain to RTP payloader)" \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
+   ! identity name=cam silent=true check-imperfect-timestamp=true \
+   ! ${Q} \
+   ! nvvidconv nvbuf-memory-type=4 \
+   ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+   ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
+   ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
+   ! identity name=post-enc silent=true check-imperfect-timestamp=true \
+   ! ${Q_ENC_OUT} \
+   ! h265parse config-interval=-1 \
+   ! rtph265pay pt=96 config-interval=-1 \
    ! fakesink sync=false"
 
 
