@@ -6,7 +6,7 @@
 # Called automatically by basler_pipeline.sh before launch (quiet mode).
 # Run manually for full diagnostic output:
 #
-#   ./check_system.sh [bayer|color] [h264|h265] [rtsp|fakesink]
+#   ./check_system.sh [--autofix] [bayer|color] [h264|h265] [rtsp|fakesink]
 #
 # Arguments are optional and default to the same values as the pipeline script.
 # Exit code: 0 = all critical checks pass, 1 = one or more failures.
@@ -22,6 +22,7 @@ set -euo pipefail
 
 QUIET=0
 FATAL_ONLY=0
+AUTOFIX=0
 CAPTURE_MODE="color"
 ENCODER="h265"
 OUTPUT_MODE="rtsp"
@@ -30,11 +31,12 @@ for arg in "$@"; do
   case "$arg" in
     --quiet)          QUIET=1 ;;
     --fatal-only)     QUIET=1; FATAL_ONLY=1 ;;
+    --autofix)        AUTOFIX=1 ;;
     bayer|color)      CAPTURE_MODE="$arg" ;;
     h264|h265)        ENCODER="$arg" ;;
     rtsp|fakesink)    OUTPUT_MODE="$arg" ;;
     *)
-      echo "Usage: $0 [--quiet] [--fatal-only] [bayer|color] [h264|h265] [rtsp|fakesink]" >&2
+      echo "Usage: $0 [--quiet] [--fatal-only] [--autofix] [bayer|color] [h264|h265] [rtsp|fakesink]" >&2
       exit 1
       ;;
   esac
@@ -47,13 +49,29 @@ done
 
 FAILURES=0
 WARNINGS=0
+FIXES_APPLIED=0
+FIXES_FAILED=0
 
 section() { [[ "$QUIET" -eq 0 ]] && echo "" && echo "--- $1 ---"; return 0; }
 ok()      { [[ "$QUIET" -eq 0 ]] && echo "  [OK]   $1"; return 0; }
 info()    { [[ "$QUIET" -eq 0 ]] && echo "  [INFO] $1"; return 0; }
-# warn is suppressed in --fatal-only mode but the count is always incremented
 warn()    { [[ "$FATAL_ONLY" -eq 0 ]] && echo "  [WARN] $1"; WARNINGS=$(( WARNINGS + 1 )); }
 fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
+
+# autofix DESCRIPTION COMMAND
+# Runs COMMAND when --autofix is set. Skipped silently otherwise.
+autofix() {
+  [[ "$AUTOFIX" -eq 0 ]] && return 0
+  local desc="$1" cmd="$2"
+  printf "  [FIX]  %s\n" "$desc"
+  if eval "$cmd"; then
+    echo "  [FIX]  Done."
+    FIXES_APPLIED=$(( FIXES_APPLIED + 1 ))
+  else
+    echo "  [FIX]  FAILED -- may need sudo or manual intervention"
+    FIXES_FAILED=$(( FIXES_FAILED + 1 ))
+  fi
+}
 
 
 # ==============================================================================
@@ -295,6 +313,7 @@ if [[ -f "$USB_MEM_FILE" ]]; then
     warn "usbfs_memory_mb = ${USB_MEM} MB -- too low (need >= ${USB_MEM_MIN} MB for single 12 MP camera)"
     warn "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
     warn "     Persist : add the above line to /etc/rc.local before 'exit 0'"
+    autofix "Set usbfs_memory_mb to ${USB_MEM_MIN}" "sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
   else
     ok "usbfs_memory_mb = ${USB_MEM} MB"
   fi
@@ -312,6 +331,7 @@ if [[ -f "$USB_AS_FILE" ]]; then
     warn "     Disable now  : sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
     warn "     Persist      : add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX"
     warn "                    in /etc/default/grub, then sudo update-grub"
+    autofix "Disable USB autosuspend" "sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
   fi
 else
   warn "Cannot read ${USB_AS_FILE} -- usbcore module may not be loaded"
@@ -380,6 +400,7 @@ if [[ -f "$GOV_FILE" ]]; then
     warn "CPU governor: ${GOV} -- clocks may scale down between frames"
     warn "     Slow scale-up on frame arrival can stall the pipeline under load."
     warn "     Fix: sudo jetson_clocks  (pins all clocks at max; adds ~3-5 W)"
+    autofix "Pin clocks with jetson_clocks" "sudo jetson_clocks"
   fi
 else
   warn "Cannot read CPU governor from ${GOV_FILE}"
@@ -448,6 +469,7 @@ if [[ -d "$CSTATE_DIR" ]]; then
         warn "     at 25fps this is $(( DEEP_LATENCY * 100 / 40000 ))% of the frame budget per wake."
         warn "     Disable only this state; WFI and shallower states stay on to save power."
         warn "     Fix: ${_DIS}"
+        autofix "Disable deepest C-state ${DEEP_NAME}" "${_DIS}"
       fi
     elif [[ "$DEEP_LATENCY" -ge 500 ]]; then
       if [[ "$DEEP_DISABLED" -eq 1 ]]; then
@@ -530,6 +552,7 @@ if [[ -f "$FTRACE_FILE" ]]; then
   if [[ "$FTRACE" == "1" ]]; then
     warn "ftrace is active -- kernel function tracing adds scheduling overhead"
     warn "     Disable: sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+    autofix "Disable ftrace" "sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
   else
     ok "ftrace is inactive"
   fi
@@ -650,12 +673,14 @@ else
   warn "Swap: ${SWAP_MB} MB configured, ${SWAP_USED_MB} MB in use"
   warn "     Swap causes latency spikes in NVMM allocation and DMA under pressure."
   warn "     Disable: sudo swapoff -a  (remove from /etc/fstab for persistence)"
+  autofix "Disable swap" "sudo swapoff -a"
 fi
 
 ZRAM_COUNT=$(ls /dev/zram* 2>/dev/null | wc -l || echo 0)
 if [[ "$ZRAM_COUNT" -gt 0 ]]; then
   warn "zram: ${ZRAM_COUNT} device(s) active -- compressed swap adds CPU overhead under pressure"
   warn "     Disable: sudo swapoff /dev/zram0  (or systemctl stop zramswap)"
+  autofix "Disable zram swap" "for z in /dev/zram*; do sudo swapoff \"\$z\" 2>/dev/null || true; done"
 else
   ok "zram: not active"
 fi
@@ -686,6 +711,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     warn "net.core.rmem_max = $(( NET_RMEM / 1024 )) KB -- below 2 MB minimum"
     warn "     Fix now : sudo sysctl -w net.core.rmem_max=${NET_REC}"
     warn "     Persist : echo 'net.core.rmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
+    autofix "Set net.core.rmem_max to ${NET_REC}" "sudo sysctl -w net.core.rmem_max=${NET_REC}"
   fi
 
   if [[ "$NET_WMEM" -ge "$NET_MIN" ]]; then
@@ -695,6 +721,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     warn "     rtspclientsink will block the pipeline at bitrates above ~20 Mbps."
     warn "     Fix now : sudo sysctl -w net.core.wmem_max=${NET_REC}"
     warn "     Persist : echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
+    autofix "Set net.core.wmem_max to ${NET_REC}" "sudo sysctl -w net.core.wmem_max=${NET_REC}"
   fi
 fi
 
@@ -714,6 +741,12 @@ if [[ "$FAILURES" -gt 0 || "$FATAL_ONLY" -eq 0 ]]; then
     echo "  Warnings do not block launch but may affect performance."
   else
     echo "  RESULT: All checks passed."
+  fi
+  if [[ "$AUTOFIX" -eq 1 ]]; then
+    echo "  AUTOFIX: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
+    [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime fixes applied. Reboot-required items still need manual steps."
+  elif [[ "$WARNINGS" -gt 0 || "$FAILURES" -gt 0 ]]; then
+    echo "  Tip: run with --autofix to apply runtime fixes automatically."
   fi
   echo "======================================================"
   echo ""
