@@ -87,10 +87,12 @@ FRAMERATE=25
 CAPTURE_MODE="color"
 
 # Pixel format for CAPTURE_MODE=color (ignored in bayer mode).
-#   BGR   - Basler pylon default output; nvvidconv -> NV12 fastest path
-#   RGB   - equally fast; some post-processing pipelines prefer RGB
-#   GRAY8 - monochrome sensor output; NV12 chroma planes will be neutral grey
-PIXEL_FORMAT="BGR"
+# Must be a format that nvvidconv's VIC hardware accepts as NVMM input.
+# Packed RGB formats (BGR, RGB) are NOT supported by VIC in NVMM mode.
+#   YUY2  - YUV packed, VIC-compatible in NVMM; zero CPU copies end-to-end
+#   UYVY  - same bandwidth as YUY2; alternative if YUY2 causes issues
+#   GRAY8 - monochrome; NV12 chroma planes will be neutral grey
+PIXEL_FORMAT="YUY2"
 
 # Bayer mosaic pattern for CAPTURE_MODE=bayer (ignored in color mode).
 # The a2A4096-30ucPRO uses an RGGB pattern (standard for most Basler color models).
