@@ -429,10 +429,12 @@ echo ""
 echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test) ---"
 
 # CRITICAL: Verify camera outputs a color format (YUY2/UYVY/BGR/RGB), not GRAY8
+# Also verify the negotiated framerate matches the requested production framerate.
 echo ""
-echo "  [FORMAT CHECK] Camera pixel format configuration"
+echo "  [FORMAT CHECK] Camera pixel format and framerate"
 out=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=YUY2,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
 fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)[^,)]*" | sed 's/format=(string)//')
+negotiated_fps=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "framerate=(fraction)[^,)]*" | sed 's/framerate=(fraction)//')
 if echo "$fmt" | grep -qE "^BGR$|^RGB$|^YUY2$|^UYVY$"; then
   printf "  %-57s[OK]  camera outputs %s (color)\n" "Camera format" "$fmt"
 else
@@ -446,6 +448,19 @@ else
   echo "         After configuring, re-run diagnose_pipeline.sh"
   FAIL=$(( FAIL + 1 ))
   STOP=1
+fi
+
+# Framerate check -- camera may not support exact fraction and negotiate differently
+expected_fps="${FPS}/1"
+if [[ -z "$negotiated_fps" ]]; then
+  printf "  %-57s[WARN] could not read negotiated framerate\n" "Camera framerate"
+elif [[ "$negotiated_fps" == "$expected_fps" ]]; then
+  printf "  %-57s[OK]  camera runs at %s fps\n" "Camera framerate" "$FPS"
+else
+  printf "  %-57s[WARN] requested %s fps, camera negotiated %s\n" "Camera framerate" "$expected_fps" "$negotiated_fps"
+  echo "         Camera does not support exactly ${FPS}fps -- pipeline will run at ${negotiated_fps}."
+  echo "         To match: set FRAMERATE to a value the camera natively supports."
+  WARNINGS=$(( WARNINGS + 1 ))
 fi
 
 run_test "pylonsrc ! fakesink" 10 1 \

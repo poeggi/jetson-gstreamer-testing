@@ -283,8 +283,7 @@ case "$ENCODER" in
       profile=0 \
       iframeinterval=${IFRAME_INTERVAL} \
       insert-sps-pps=1 \
-      maxperf-enable=1 \
-      preset-level=1"
+      maxperf-enable=1"
     PARSE_ELEMENT="h265parse config-interval=-1"
     RTP_ELEMENT="rtph265pay pt=96 config-interval=-1"
     ;;
