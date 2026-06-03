@@ -428,23 +428,35 @@ run_test "+ rtph265pay pt=96 config-interval=-1 (full chain to RTP payloader)" \
 echo ""
 echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test) ---"
 
-# CRITICAL: Verify camera outputs BGR8 (color), not GRAY8 (monochrome)
+# CRITICAL: Verify camera outputs color (BGR/RGB), not GRAY8 (monochrome)
 echo ""
-echo "  [FORMAT CHECK] pylonsrc with pixelformat=BGR8 property"
-out=$(gst-launch-1.0 -v pylonsrc pixelformat=BGR8 num-buffers=1 ! "video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
+echo "  [FORMAT CHECK] Camera pixel format configuration"
+out=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
 fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)[^ ]*" | cut -d' ' -f2)
-if echo "$fmt" | grep -q "BGR8"; then
-  printf "  %-57s[OK]  camera outputs BGR8 (color)\n" "pixelformat=BGR8"
+if echo "$fmt" | grep -qE "BGR|RGB|YUY2|UYVY"; then
+  printf "  %-57s[OK]  camera outputs %s (color)\n" "Camera format" "$fmt"
 else
-  printf "  %-57s[FAIL] camera outputs ${fmt:-UNKNOWN} (should be BGR8)\n" "pixelformat=BGR8"
-  echo "         Camera is not configured for color mode."
-  echo "         Use pylon Viewer or set camera PixelFormat to BGR8."
+  printf "  %-57s[FAIL] camera outputs %s (monochrome)\n" "Camera format" "$fmt"
+  echo ""
+  echo "         SOLUTION: Configure camera in pylon, NOT GStreamer"
+  echo "         Camera format is set persistently via pylon Viewer or pylon tools."
+  echo "         "
+  echo "         Option 1: Use pylon Viewer GUI"
+  echo "           - Launch: pylon Viewer"
+  echo "           - Connect to camera"
+  echo "           - Camera → Features → PixelFormat → select BGR8 or RGB8"
+  echo "           - Save camera settings"
+  echo "         "
+  echo "         Option 2: Use pylon command-line (if available)"
+  echo "           pylonc set --device <serial> PixelFormat BGR8"
+  echo "         "
+  echo "         After configuring, re-run diagnose_pipeline.sh"
   FAIL=$(( FAIL + 1 ))
   STOP=1
 fi
 
 run_test "pylonsrc ! fakesink" 10 1 \
-  "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 ! fakesink sync=false"
+  "pylonsrc num-buffers=${CAM_BUFFERS} ! fakesink sync=false"
 
 # Color path (primary -- matches default CAPTURE_MODE=color in basler_pipeline.sh)
 if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
@@ -453,14 +465,14 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   STOP=0
 
   run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" 10 1 \
-    "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 \
+    "pylonsrc num-buffers=${CAM_BUFFERS} \
      ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! nvvidconv nvbuf-memory-type=4 \
      ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
      ! fakesink sync=false"
 
   run_test "pylonsrc full color pipeline (NVMM zero-copy, small res)" 10 1 \
-    "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 \
+    "pylonsrc num-buffers=${CAM_BUFFERS} \
      ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! identity name=cam silent=true check-imperfect-timestamp=true \
      ! ${Q} \
@@ -479,7 +491,7 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
     RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}/diag"
     run_test "pylonsrc full chain + rtspclientsink (production)" 10 1 \
-      "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 \
+      "pylonsrc num-buffers=${CAM_BUFFERS} \
        ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
        ! identity name=cam silent=true check-imperfect-timestamp=true \
        ! ${Q} \
