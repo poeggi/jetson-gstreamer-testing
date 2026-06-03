@@ -2,9 +2,10 @@
 
 **Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 5.x / 6.x) &nbsp;|&nbsp; **Script:** `basler_pipeline.sh`
 
-Zero-copy GStreamer pipeline capturing 12 MP color (YUY2) over USB3, encoding to H.264
-via NVENC hardware, and streaming over RTSP. Includes a system health check script
-and a full bandwidth and bitrate reference for this camera and interface.
+Zero-copy GStreamer pipeline capturing 4K (4096x2160) color (YUY2) from a 12 MP sensor
+over USB3, encoding to H.264 or H.265 via NVENC hardware, and streaming over RTSP.
+Includes a system health check script and a full bandwidth and bitrate reference for
+this camera and interface.
 
 ---
 
