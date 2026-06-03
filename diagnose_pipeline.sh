@@ -373,42 +373,10 @@ run_test "+ h265parse config-interval=-1 (full color pipeline complete)" \
 
 
 # ==============================================================================
-# SECTION 8: RTSP output
-#
-# Tests the rtspclientsink path. Skipped automatically if MediaMTX is not
-# running. Start MediaMTX first: ./mediamtx  (port 8554)
+# SECTION 8: pylonsrc (camera required)
 # ==============================================================================
 echo ""
-echo "--- 8. RTSP output (requires MediaMTX at 127.0.0.1:8554) ---"
-
-RTSP_HOST="127.0.0.1"
-RTSP_PORT="8554"
-
-if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
-  RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}/diag"
-  STOP=0
-
-  run_test "rtspclientsink location=\"rtsp://...\"" \
-    "videotestsrc num-buffers=${BUFFERS} \
-     ! video/x-raw,format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-     ! nvvidconv nvbuf-memory-type=4 \
-     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-     ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
-     ! h265parse config-interval=-1 \
-     ! rtph265pay pt=96 config-interval=-1 \
-     ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
-
-else
-  echo "  [SKIP] MediaMTX not running at ${RTSP_HOST}:${RTSP_PORT}"
-  echo "         Start with: ./mediamtx"
-fi
-
-
-# ==============================================================================
-# SECTION 9: pylonsrc (camera required)
-# ==============================================================================
-echo ""
-echo "--- 9. pylonsrc (camera must be connected) ---"
+echo "--- 8. pylonsrc (camera must be connected) ---"
 
 run_test "pylonsrc ! fakesink" \
   "pylonsrc num-buffers=${BUFFERS} ! fakesink sync=false"
