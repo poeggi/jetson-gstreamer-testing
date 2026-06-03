@@ -138,12 +138,12 @@ RTSP_PATH="/main"
 
 for arg in "$@"; do
   case "$arg" in
-    --fakesink)
-      OUTPUT_MODE="fakesink"
-      ;;
+    --fakesink)   OUTPUT_MODE="fakesink" ;;
+    --h264)       ENCODER="h264" ;;
+    --h265)       ENCODER="h265" ;;
     *)
       echo "ERROR: Unknown argument: $arg"
-      echo "Usage: $0 [--fakesink]"
+      echo "Usage: $0 [--fakesink] [--h264|--h265]"
       exit 1
       ;;
   esac
