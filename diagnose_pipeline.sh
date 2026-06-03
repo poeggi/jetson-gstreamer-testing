@@ -447,6 +447,30 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
      ! ${Q_ENC_OUT} \
      ! h265parse config-interval=-1 \
      ! fakesink sync=false"
+
+  # Test the full production chain with rtspclientsink (requires MediaMTX running)
+  RTSP_HOST="127.0.0.1"
+  RTSP_PORT="8554"
+  if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+    RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}/diag"
+    run_test "pylonsrc full chain + rtspclientsink (production)" 10 1 \
+      "pylonsrc num-buffers=${CAM_BUFFERS} \
+       ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
+       ! identity name=cam silent=true check-imperfect-timestamp=true \
+       ! ${Q} \
+       ! nvvidconv nvbuf-memory-type=4 \
+       ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+       ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
+       ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
+       ! identity name=post-enc silent=true check-imperfect-timestamp=true \
+       ! ${Q_ENC_OUT} \
+       ! h265parse config-interval=-1 \
+       ! rtph265pay pt=96 config-interval=-1 \
+       ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
+  else
+    echo ""
+    echo "  [SKIP] rtspclientsink test -- MediaMTX not running at ${RTSP_HOST}:${RTSP_PORT}"
+  fi
 else
   echo "  [SKIP] Color path -- NVMM caps not available (upgrade pylon plugin)"
 fi
