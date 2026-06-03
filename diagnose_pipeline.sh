@@ -60,9 +60,15 @@ run_test() {
 
   printf "  %-57s" "${label}"
 
-  local out
+  local out rc=0
   # shellcheck disable=SC2068
-  out=$(gst-launch-1.0 -e $@ 2>&1) || true
+  out=$(timeout 30 gst-launch-1.0 -e $@ 2>&1) || rc=$?
+  if [[ $rc -eq 124 ]]; then
+    echo "[FAIL] <-- pipeline hung (did not exit within 30s)"
+    FAIL=$(( FAIL + 1 ))
+    STOP=1
+    return 1
+  fi
 
   if echo "$out" | grep -q "${CRITICAL}"; then
     echo "[FAIL] <-- gst_element_make_from_uri triggered"
