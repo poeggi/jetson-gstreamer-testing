@@ -21,7 +21,7 @@ set -euo pipefail
 # ==============================================================================
 
 QUIET=0
-CAPTURE_MODE="bayer"
+CAPTURE_MODE="color"
 ENCODER="h265"
 OUTPUT_MODE="rtsp"
 

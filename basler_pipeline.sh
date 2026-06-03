@@ -56,32 +56,35 @@ set -euo pipefail
 CAMERA_SERIAL=""
 
 # Sensor resolution. The a2A4096-30ucPRO maximum is 4096 x 3000.
-# Using the full sensor resolution. Reduce for higher frame rates or lower
-# USB bandwidth (ROI mode -- configure ROI offset in pylon if needed).
+# HEIGHT is limited to 2160 by the Orin NX NVENC H.265 Level 5.1 ceiling:
+#   ~8,912,896 luma samples/frame (~8.9 MP). 4096 x 3000 = 12.3 MP exceeds
+#   that limit (hard silicon, not tunable). 4096 x 2160 = 8.8 MP -- fits.
+# To centre the crop on the sensor: set OffsetY = 420 in pylon Viewer
+#   (OffsetY = (3000 - 2160) / 2 = 420).
 WIDTH=4096
-HEIGHT=3000
+HEIGHT=2160
 
 # Frame rate in frames per second.
-# Camera rated maximum at full resolution: 30 fps (BayerRG8, barely within Gen1).
-# 25 fps provides ~19% headroom below the Gen1 ceiling -- recommended default.
-# Increase to 30 only after confirming your USB host controller sustains 369 MB/s.
+# At 4096 x 2160, color mode BGR8 (3 bytes/px): ~664 MB/s -- requires Gen2.
+# For Gen1 onboard ports (~380 MB/s), use CAPTURE_MODE=bayer (221 MB/s).
 FRAMERATE=25
 
 # ------------------------------------------------------------------------------
 # CAPTURE_MODE: how pixel data is read from the camera and handed to the encoder
 # ------------------------------------------------------------------------------
 # "color"  pylonsrc emits BGR8 (or format in PIXEL_FORMAT below).
-#          The camera FPGA debayers internally; USB cost is 3 bytes/pixel.
-#          4096x3000 BGR8 at 25fps = 922 MB/s -- NOT feasible on Gen1.
-#          Use color mode only at lower resolutions / fps on Gen1, or on Gen2.
+#          Camera FPGA debayers internally; no CPU debayer cost on Jetson.
+#          pylonsrc with NVMM support places frames directly into GPU memory
+#          via USB DMA -- zero system RAM copies on the entire capture path.
+#          4096x2160 BGR8 at 25fps = ~664 MB/s -- requires USB 3.1 Gen2.
 #
 # "bayer"  pylonsrc emits raw BayerRG8; USB cost is 1 byte/pixel.
-#          4096x3000 BayerRG8 at 25fps = 307 MB/s -- fits on Gen1 with headroom.
+#          4096x2160 BayerRG8 at 25fps = 221 MB/s -- fits Gen1 with headroom.
 #          Debayering is performed on Jetson by bayer2rgb (CPU, NEON SIMD).
 #          Limitation: bayer2rgb only supports 8-bit Bayer. For 12-bit quality,
 #          use CAPTURE_MODE=color with pylon configured to output BGR8 in-camera.
 #
-CAPTURE_MODE="bayer"
+CAPTURE_MODE="color"
 
 # Pixel format for CAPTURE_MODE=color (ignored in bayer mode).
 #   BGR   - Basler pylon default output; nvvidconv -> NV12 fastest path
@@ -103,15 +106,15 @@ BAYER_FORMAT="rggb"
 # ------------------------------------------------------------------------------
 # "h264"  H.264 AVC High Profile. Broadest client compatibility; higher bitrate.
 # "h265"  H.265 HEVC Main Profile. ~40-50% smaller at equal quality.
-#         Recommended for 12MP -- the bitrate saving is significant at this size.
+#         Recommended for 4K DCI -- the bitrate saving is significant at this size.
 #         Verify your RTSP client / NVR supports HEVC before deploying.
 ENCODER="h265"
 
 # Target encode bitrate in bits per second.
-# Current default: 20 Mbps H.265, streaming quality at 12MP/25fps.
-# Raise to ~38 Mbps for high quality (minimal visible artefacts).
+# 28 Mbps H.265 = high quality at 4096x2160 / 25fps; artefacts not visible
+# under frame-by-frame inspection. 13 Mbps = streaming quality (remote monitoring).
 # See README.md section 4 for full bitrate table by codec, resolution and fps.
-BITRATE=20000000
+BITRATE=28000000
 
 # Keyframe (IDR frame) interval in frames.
 # Rule of thumb: set equal to FRAMERATE for 1 IDR per second (good for RTSP).

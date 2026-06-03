@@ -288,20 +288,20 @@ run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)"
 
 
 # ==============================================================================
-# SECTION 7: Full basler_pipeline.sh equivalent (videotestsrc, no camera)
+# SECTION 7: Full basler_pipeline.sh equivalent (videotestsrc, color mode, no camera)
 #
-# Mirrors the bayer-mode pipeline from basler_pipeline.sh element by element:
-#   videotestsrc (simulating pylonsrc)
-#   -> x-bayer caps
-#   -> identity(cam, check-imperfect-timestamp)
-#   -> queue(pre-bayer)
-#   -> bayer2rgb
-#   -> queue(pre-nvvidconv)
-#   -> nvvidconv nvbuf-memory-type=4
-#   -> NVMM caps
-#   -> identity(pre-enc, check-imperfect-timestamp)
+# Mirrors the color-mode pipeline from basler_pipeline.sh element by element.
+# videotestsrc cannot output NVMM directly, so a BGRx caps step simulates
+# the format pylonsrc would put into NVMM (in production: USB DMA -> GPU).
+#
+#   src ! BGRx caps                     videotestsrc simulating pylonsrc color
+#   -> identity(cam)
+#   -> queue
+#   -> nvvidconv nvbuf-memory-type=4    BGRx -> NV12, system RAM -> NVMM
+#   -> NVMM NV12 caps
+#   -> identity(pre-enc)
 #   -> nvv4l2h265enc (all props as in basler_pipeline.sh)
-#   -> identity(post-enc, check-imperfect-timestamp)
+#   -> identity(post-enc)
 #   -> queue(post-enc)
 #   -> h265parse config-interval=-1
 #   -> fakesink
@@ -309,71 +309,48 @@ run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)"
 # The first [FAIL] here pinpoints the element that is the root cause.
 # ==============================================================================
 echo ""
-echo "--- 7. Full basler_pipeline.sh equivalent (videotestsrc, no camera) ---"
+echo "--- 7. Full basler_pipeline.sh equivalent -- color mode (videotestsrc, no camera) ---"
 STOP=0  # reset so this section always runs regardless of earlier failures
 
-run_test "src ! x-bayer caps ! fakesink" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+run_test "src ! BGRx caps ! fakesink" \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! fakesink sync=false"
 
 run_test "+ identity name=cam check-imperfect-timestamp=true" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! fakesink sync=false"
-
-run_test "+ queue(pre-bayer, leaky=downstream)" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
-   ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! fakesink sync=false"
-
-run_test "+ bayer2rgb" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
-   ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! fakesink sync=false"
 
 run_test "+ queue(pre-nvvidconv, leaky=downstream)" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! fakesink sync=false"
 
-run_test "+ nvvidconv nvbuf-memory-type=4" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+run_test "+ nvvidconv nvbuf-memory-type=4 (BGRx -> NV12 NVMM)" \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! nvvidconv nvbuf-memory-type=4 \
    ! fakesink sync=false"
 
-run_test "+ NVMM caps filter" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+run_test "+ NV12 NVMM caps filter" \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
    ! fakesink sync=false"
 
 run_test "+ identity name=pre-enc check-imperfect-timestamp=true" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
@@ -381,11 +358,9 @@ run_test "+ identity name=pre-enc check-imperfect-timestamp=true" \
    ! fakesink sync=false"
 
 run_test "+ nvv4l2h265enc (all basler_pipeline.sh props)" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
@@ -394,11 +369,9 @@ run_test "+ nvv4l2h265enc (all basler_pipeline.sh props)" \
    ! fakesink sync=false"
 
 run_test "+ identity name=post-enc check-imperfect-timestamp=true" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
@@ -408,11 +381,9 @@ run_test "+ identity name=post-enc check-imperfect-timestamp=true" \
    ! fakesink sync=false"
 
 run_test "+ queue(post-enc output)" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
@@ -422,12 +393,10 @@ run_test "+ queue(post-enc output)" \
    ! ${Q_ENC_OUT} \
    ! fakesink sync=false"
 
-run_test "+ h265parse config-interval=-1 (full pipeline complete)" \
-  "videotestsrc num-buffers=${BUFFERS} pattern=snow \
-   ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 \
+run_test "+ h265parse config-interval=-1 (full color pipeline complete)" \
+  "videotestsrc num-buffers=${BUFFERS} \
+   ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
-   ! ${Q} \
-   ! bayer2rgb \
    ! ${Q} \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
@@ -452,9 +421,9 @@ run_test "+ h265parse config-interval=-1 (full pipeline complete)" \
 echo ""
 echo "--- 8. Launch method comparison (single-string vs word-split) ---"
 
-FULL_PIPE="videotestsrc num-buffers=${BUFFERS} pattern=snow ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! bayer2rgb ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! fakesink sync=false"
+FULL_PIPE="videotestsrc num-buffers=${BUFFERS} ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! fakesink sync=false"
 
-run_compare "full pipeline (bayer -> h265 -> fakesink)" "$FULL_PIPE"
+run_compare "full pipeline (color NVMM -> h265 -> fakesink)" "$FULL_PIPE"
 
 
 # ==============================================================================
@@ -493,8 +462,8 @@ if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
      ! rtph265pay pt=96 config-interval=-1 \
      ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
 
-  RTSP_FULL="videotestsrc num-buffers=${BUFFERS} pattern=snow ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! bayer2rgb ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! rtph265pay pt=96 config-interval=-1 ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
-  run_compare "full RTSP pipeline (single-string vs word-split)" "$RTSP_FULL"
+  RTSP_FULL="videotestsrc num-buffers=${BUFFERS} ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! rtph265pay pt=96 config-interval=-1 ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
+  run_compare "full RTSP pipeline (color NVMM, single-string vs word-split)" "$RTSP_FULL"
 else
   echo "  [SKIP] MediaMTX not running at ${RTSP_HOST}:${RTSP_PORT}"
   echo "         Start with: ./mediamtx"
@@ -509,6 +478,41 @@ echo "--- 10. pylonsrc (camera must be connected) ---"
 
 run_test "pylonsrc ! fakesink" \
   "pylonsrc num-buffers=${BUFFERS} ! fakesink sync=false"
+
+# Color path (primary -- matches default CAPTURE_MODE=color in basler_pipeline.sh)
+if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
+  echo ""
+  echo "  Color path (primary -- NVMM zero-copy, default CAPTURE_MODE=color)"
+  STOP=0
+
+  run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" \
+    "pylonsrc num-buffers=${BUFFERS} \
+     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
+     ! nvvidconv nvbuf-memory-type=4 \
+     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+     ! fakesink sync=false"
+
+  run_test "pylonsrc full color pipeline (NVMM zero-copy, small res)" \
+    "pylonsrc num-buffers=${BUFFERS} \
+     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
+     ! identity name=cam silent=true check-imperfect-timestamp=true \
+     ! ${Q} \
+     ! nvvidconv nvbuf-memory-type=4 \
+     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
+     ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
+     ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
+     ! identity name=post-enc silent=true check-imperfect-timestamp=true \
+     ! ${Q_ENC_OUT} \
+     ! h265parse config-interval=-1 \
+     ! fakesink sync=false"
+else
+  echo "  [SKIP] Color path -- NVMM caps not available (upgrade pylon plugin)"
+fi
+
+# Bayer path (reference -- CAPTURE_MODE=bayer, Gen1 USB or CPU-debayer preferred)
+echo ""
+echo "  Bayer path (reference -- CAPTURE_MODE=bayer)"
+STOP=0
 
 run_test "pylonsrc ! video/x-bayer caps ! fakesink" \
   "pylonsrc num-buffers=${BUFFERS} \
@@ -547,36 +551,6 @@ run_test "pylonsrc full bayer pipeline (small res)" \
    ! ${Q_ENC_OUT} \
    ! h265parse config-interval=-1 \
    ! fakesink sync=false"
-
-# NVMM direct color path (matches basler_pipeline.sh CAPTURE_MODE=color with NVMM)
-if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
-  echo ""
-  echo "  pylonsrc NVMM color path (requires NVMM-capable pylon plugin)"
-  STOP=0
-
-  run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" \
-    "pylonsrc num-buffers=${BUFFERS} \
-     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
-     ! nvvidconv nvbuf-memory-type=4 \
-     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-     ! fakesink sync=false"
-
-  run_test "pylonsrc NVMM + full encode chain (zero-copy color path)" \
-    "pylonsrc num-buffers=${BUFFERS} \
-     ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
-     ! identity name=cam silent=true check-imperfect-timestamp=true \
-     ! ${Q} \
-     ! nvvidconv nvbuf-memory-type=4 \
-     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-     ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-     ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
-     ! identity name=post-enc silent=true check-imperfect-timestamp=true \
-     ! ${Q_ENC_OUT} \
-     ! h265parse config-interval=-1 \
-     ! fakesink sync=false"
-else
-  echo "  [SKIP] pylonsrc NVMM color path -- NVMM caps not available on this system"
-fi
 
 
 # ==============================================================================

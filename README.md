@@ -86,6 +86,11 @@ Bandwidth formula: `width x height x bytes_per_pixel x fps / 1,000,000`
 
 ## 4 - Encoding Bitrate Reference
 
+> **NVENC hardware limit (H.265):** The Orin NX NVENC supports H.265 up to
+> Level 5.1, which allows a maximum of **8,912,896 luma samples per frame
+> (~8.9 MP)**. 4096 x 3000 = 12.3 MP exceeds this — a hard silicon limit,
+> not a tuning issue. **4096 x 2160 = 8.8 MP is the maximum and script default.**
+
 ### H.264 vs H.265
 
 **H.264 AVC, High Profile** (`profile=4`, `nvv4l2h264enc`):
@@ -98,7 +103,7 @@ Bandwidth formula: `width x height x bytes_per_pixel x fps / 1,000,000`
 - ~40-50% lower bitrate for equal perceived quality
 - Preferred at 4K and above where bitrate savings are most significant
 - Slightly higher encode latency (larger GOP processing)
-- Recommended for this project (12MP at 25fps -- see script default)
+- Recommended for this project (4K DCI 4096x2160 at 25fps -- see script default)
 - Verify your RTSP client / NVR supports H.265 before deploying
 
 ### Bitrate table -- H.264 High Profile
@@ -115,9 +120,10 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 1920 x 1080 |  60 |  10 Mbps  |   20 Mbps    |                     |
 | 2592 x 1944 |  30 |  12 Mbps  |   22 Mbps    | 5 MP                |
 | 3840 x 2160 |  30 |  25 Mbps  |   45 Mbps    | 4K UHD              |
-| 3840 x 2160 |  60 |  40 Mbps  |   70 Mbps    | 4K UHD, Gen2 only   |
-| 4096 x 3000 |  25 |  35 Mbps  |   62 Mbps    | 12 MP (this camera) |
-| 4096 x 3000 |  30 |  42 Mbps  |   74 Mbps    | 12 MP, Gen2 only    |
+| 3840 x 2160 |  60 |  40 Mbps  |   70 Mbps    | 4K UHD, Gen2 only                          |
+| 4096 x 2160 |  25 |  22 Mbps  |   40 Mbps    | 4K DCI -- **script default**               |
+| 4096 x 3000 |  25 |  35 Mbps  |   62 Mbps    | 12 MP full sensor (Level 6.0 req.)         |
+| 4096 x 3000 |  30 |  42 Mbps  |   74 Mbps    | 12 MP full sensor (Level 6.0 req.), Gen2   |
 
 ### Bitrate table -- H.265 Main Profile (recommended for 12MP)
 
@@ -127,9 +133,10 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 1920 x 1080 |  60 |   6 Mbps  |   12 Mbps    |                         |
 | 2592 x 1944 |  30 |   7 Mbps  |   14 Mbps    | 5 MP                    |
 | 3840 x 2160 |  30 |  15 Mbps  |   28 Mbps    | 4K UHD                  |
-| 3840 x 2160 |  60 |  22 Mbps  |   40 Mbps    | 4K UHD, Gen2 only       |
-| 4096 x 3000 |  25 |  20 Mbps  |   38 Mbps    | 12 MP -- script default |
-| 4096 x 3000 |  30 |  25 Mbps  |   45 Mbps    | 12 MP, Gen2 only        |
+| 3840 x 2160 |  60 |  22 Mbps  |   40 Mbps    | 4K UHD, Gen2 only                          |
+| 4096 x 2160 |  25 |  13 Mbps  |   28 Mbps    | 4K DCI -- **script default** (28 Mbps set) |
+| 4096 x 3000 |  25 |  20 Mbps  |   38 Mbps    | 12 MP full sensor (Level 6.0 req.)         |
+| 4096 x 3000 |  30 |  25 Mbps  |   45 Mbps    | 12 MP full sensor (Level 6.0 req.), Gen2   |
 
 ### Rate control
 
@@ -152,11 +159,14 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (25 at 25 fps -- the
 
 ## 5 - Recommended Configurations
 
+**Note:** Color mode (BGR8) at 4096 x 2160 = ~664 MB/s — Gen2 only; see Gen2 table.
+
 ### USB 3.1 Gen1 -- Jetson Orin NX onboard ports
 
 | Goal                | Format   | Resolution  | FPS | Bandwidth | Notes                      |
 |---------------------|----------|-------------|-----|-----------|----------------------------|
-| 12 MP standard      | BayerRG8 | 4096 x 3000 |  25 | 307 MB/s  | OK -- script default       |
+| 4K DCI bayer        | BayerRG8 | 4096 x 2160 |  25 | 221 MB/s  | OK -- Gen1 bayer option    |
+| 12 MP standard      | BayerRG8 | 4096 x 3000 |  25 | 307 MB/s  | OK                         |
 | 12 MP max rated fps | BayerRG8 | 4096 x 3000 |  30 | 369 MB/s  | (~) -- verify USB host     |
 | 5 MP high fps       | BayerRG8 | 2592 x 1944 |  60 | 302 MB/s  | OK                         |
 | 4K standard         | BGR8     | 3840 x 2160 |  14 | 348 MB/s  | OK -- no debayer CPU cost  |
@@ -167,6 +177,7 @@ Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (25 at 25 fps -- the
 
 | Goal                    | Format        | Resolution  | FPS | Bandwidth | Notes                      |
 |-------------------------|---------------|-------------|-----|-----------|----------------------------|
+| 4K DCI color (default)  | BGR8          | 4096 x 2160 |  25 | 664 MB/s  | OK -- zero-copy NVMM       |
 | 12 MP at 30 fps         | BayerRG8      | 4096 x 3000 |  30 | 369 MB/s  | OK -- sensor limit         |
 | 12 MP 12-bit at 20 fps  | BayerRG12Pack | 4096 x 3000 |  20 | 369 MB/s  | OK -- custom debayer req.  |
 | 4K all formats          | BayerRG12Pack | 3840 x 2160 |  30 | 373 MB/s  | (~) -- custom debayer req. |
