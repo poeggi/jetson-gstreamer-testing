@@ -5,7 +5,7 @@
 HOST="${1:-192.168.1.252}"
 PORT="${2:-8554}"
 PATH_="${3:-/main}"
-CACHING="${4:-100}"
+CACHING="${4:-200}"
 
 URL="rtsp://${HOST}:${PORT}${PATH_}"
 

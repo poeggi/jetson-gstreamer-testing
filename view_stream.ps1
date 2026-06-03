@@ -2,7 +2,7 @@ param(
     [string]$Host = "192.168.1.252",
     [string]$Port = "8554",
     [string]$Path = "/main",
-    [int]$Caching = 100
+    [int]$Caching = 200
 )
 
 $url = "rtsp://${Host}:${Port}${Path}"
