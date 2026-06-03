@@ -386,7 +386,7 @@ else
   # Caps filter asserts NVMM memory type and resolution/framerate after negotiation.
   CAPS_SRC="video/x-raw(memory:NVMM),width=${WIDTH},height=${HEIGHT},framerate=${FRAMERATE}/1"
   Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
-  SRC_SEGMENT="pylonsrc ${SERIAL_PROP} \
+  SRC_SEGMENT="pylonsrc ${SERIAL_PROP} user-set=UserSet1 \
     ! ${CAPS_SRC} \
     ! identity name=cam     silent=true check-imperfect-timestamp=true \
     ! ${Q} \
