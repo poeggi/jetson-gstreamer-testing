@@ -299,7 +299,7 @@ run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)"
 #   -> nvvidconv nvbuf-memory-type=4    BGRx -> NV12, system RAM -> NVMM
 #   -> NVMM NV12 caps
 #   -> identity(pre-enc)
-#   -> nvv4l2h264enc (all props as in basler_pipeline.sh, preset-level=1)
+#   -> nvv4l2h264enc (all props as in basler_pipeline.sh)
 #   -> identity(post-enc)
 #   -> queue(post-enc)
 #   -> h264parse config-interval=-1
@@ -364,7 +364,7 @@ run_test "+ nvv4l2h264enc (all basler_pipeline.sh props)" \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 preset-level=1 \
+   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! fakesink sync=false"
 
 run_test "+ identity name=post-enc check-imperfect-timestamp=true" \
@@ -375,7 +375,7 @@ run_test "+ identity name=post-enc check-imperfect-timestamp=true" \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 preset-level=1 \
+   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
    ! fakesink sync=false"
 
@@ -387,7 +387,7 @@ run_test "+ queue(post-enc output)" \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 preset-level=1 \
+   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
    ! ${Q_ENC_OUT} \
    ! fakesink sync=false"
@@ -400,7 +400,7 @@ run_test "+ h264parse config-interval=-1" \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 preset-level=1 \
+   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
    ! ${Q_ENC_OUT} \
    ! h264parse config-interval=-1 \
@@ -414,7 +414,7 @@ run_test "+ rtph264pay pt=96 config-interval=-1 (full chain to RTP payloader)" \
    ! nvvidconv nvbuf-memory-type=4 \
    ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 preset-level=1 \
+   ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
    ! ${Q_ENC_OUT} \
    ! h264parse config-interval=-1 \
@@ -487,7 +487,7 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
      ! nvvidconv nvbuf-memory-type=4 \
      ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
      ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-     ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 preset-level=1 \
+     ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
      ! identity name=post-enc silent=true check-imperfect-timestamp=true \
      ! ${Q_ENC_OUT} \
      ! h264parse config-interval=-1 \
@@ -506,7 +506,7 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
        ! nvvidconv nvbuf-memory-type=4 \
        ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
        ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
-       ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 preset-level=1 \
+       ! nvv4l2h264enc bitrate=${BITRATE} control-rate=1 profile=4 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
        ! identity name=post-enc silent=true check-imperfect-timestamp=true \
        ! ${Q_ENC_OUT} \
        ! h264parse config-interval=-1 \
