@@ -30,4 +30,4 @@ gst-launch-1.0 \
   ! nvv4l2decoder \
   ! nvvidconv \
   ! "video/x-raw(memory:NVMM),format=NV12,width=2048,height=1080" \
-  ! "${SINK}" sync=false
+  ! "${SINK}" window-width=2048 window-height=1080 sync=false
