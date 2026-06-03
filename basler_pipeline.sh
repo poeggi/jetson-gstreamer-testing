@@ -374,15 +374,15 @@ esac
 # identity elements are zero-copy passthroughs with one integer comparison per
 # buffer. check-imperfect-timestamp prints a warning only when timing is off.
 #
-# Expected end-to-end latency budget (sender side, 25fps):
+# Expected end-to-end latency budget (sender side, 30fps):
 #
-#   Camera exposure + USB DMA   ~40ms   (one frame -- unavoidable at 25fps)
+#   Camera exposure + USB DMA   ~33ms   (one frame at 30fps)
 #   nvvidconv YUY2->NV12          <1ms   (VIC hardware, stays in NVMM)
-#   NVENC internal pipeline     ~40-80ms (1-2 frames; num-Bframes=0 keeps this low)
-#   h265parse                     <1ms
+#   NVENC internal pipeline     ~33-66ms (1-2 frames; num-Bframes=0 keeps this low)
+#   h264parse                     <1ms
 #   rtspclientsink TCP (LAN)      <5ms
 #   -------------------------------------------
-#   Sender total              ~85-130ms   (well below 1 second)
+#   Sender total              ~72-106ms
 #
 # Note: the receiver (VLC, GStreamer rtspsrc) adds its own jitter buffer on
 # top of this. Default is 1000ms in VLC and 200ms in GStreamer rtspsrc.

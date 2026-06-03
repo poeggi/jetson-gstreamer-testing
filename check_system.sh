@@ -476,7 +476,7 @@ if [[ -d "$CSTATE_DIR" ]]; then
       else
         warn "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us) is enabled"
         warn "     ${DEEP_LATENCY} us wake latency = $(( DEEP_LATENCY / 1000 )) ms per event;"
-        warn "     at 25fps this is $(( DEEP_LATENCY * 100 / 40000 ))% of the frame budget per wake."
+        warn "     at 30fps this is $(( DEEP_LATENCY * 100 / 33000 ))% of the frame budget per wake."
         warn "     Disable only this state; WFI and shallower states stay on to save power."
         warn "     Fix: ${_DIS}"
         autofix "Disable deepest C-state ${DEEP_NAME}" "${_DIS}"
@@ -487,11 +487,11 @@ if [[ -d "$CSTATE_DIR" ]]; then
         info "NOTE: ${DEEP_LATENCY} us is borderline. Re-enable if power is the priority:"
         info "      ${_ENA}"
       else
-        info "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us): borderline for 25fps"
+        info "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us): borderline for 30fps"
         info "     Disable if frame jitter is observed: ${_DIS}"
       fi
     else
-      ok "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us): acceptable latency for 25fps"
+      ok "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us): acceptable latency for 30fps"
     fi
   fi
 fi

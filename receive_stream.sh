@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Receive and display the RTSP stream locally using GStreamer hardware decode.
 # Requires: NVDEC (nvv4l2decoder) and a display (nv3dsink).
-# Usage: ./receive_stream.sh [host] [port] [path]
+# Usage: ./receive_stream.sh [host] [port] [path] [latency_ms]
 
 HOST="${1:-127.0.0.1}"
 PORT="${2:-8554}"
@@ -18,5 +18,5 @@ gst-launch-1.0 \
   ! h264parse \
   ! nvv4l2decoder \
   ! nvvidconv \
-  ! "video/x-raw(memory:NVMM),format=NV12,width=2048,height=1080" \
+  ! "video/x-raw(memory:NVMM),format=NV12,width=2048,height=1080" \  # 50% of 4096x2160
   ! nv3dsink window-width=2048 window-height=1080 sync=false

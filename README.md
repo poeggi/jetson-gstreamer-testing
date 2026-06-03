@@ -215,14 +215,14 @@ RGB formats (BGR8/RGB8) are NOT accepted by VIC as NVMM input -- use YUY2 instea
 The pipeline sender contributes ~60-100ms of latency (camera exposure + NVENC H.264 ULL preset).
 Most RTSP players add a large jitter buffer on top by default and must be tuned.
 
-| Source          | Latency        |
-|-----------------|----------------|
-| Camera + USB    | ~33ms          |
-| nvvidconv + enc | ~20-40ms       |
-| Sender total    | ~55-75ms       |
-| VLC buffer      | 200ms          |
-| H.264 decode    | ~10-20ms       |
-| **Total**       | **~265-295ms** |
+| Source          | Latency         |
+|-----------------|-----------------|
+| Camera + USB    | ~33ms           |
+| nvvidconv + enc | ~33-66ms        |
+| Sender total    | ~72-106ms       |
+| VLC buffer      | 200ms           |
+| H.264 decode    | ~10-20ms        |
+| **Total**       | **~282-326ms**  |
 
 ### VLC (recommended for quick testing)
 

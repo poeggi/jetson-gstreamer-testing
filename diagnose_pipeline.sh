@@ -28,6 +28,7 @@ BITRATE=28000000    # production bitrate (H.264 CBR, 28 Mbps at 4K/30fps)
 
 PASS=0
 FAIL=0
+WARNINGS=0
 STOP=0              # set to 1 on first failure; all subsequent tests are skipped
 
 CRITICAL="gst_element_make_from_uri"
