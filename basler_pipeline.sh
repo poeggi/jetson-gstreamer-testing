@@ -182,7 +182,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export RTSP_HOST RTSP_PORT
-if ! "${SCRIPT_DIR}/check_system.sh" --fatal-only "$CAPTURE_MODE" "$ENCODER" "$OUTPUT_MODE"; then
+if ! "${SCRIPT_DIR}/check_system.sh" --fatal-only "$ENCODER" "$OUTPUT_MODE"; then
   echo "ERROR: Pre-flight checks failed. Run ./check_system.sh for details." >&2
   exit 1
 fi

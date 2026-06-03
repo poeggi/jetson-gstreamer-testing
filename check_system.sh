@@ -6,7 +6,7 @@
 # Called automatically by basler_pipeline.sh before launch (quiet mode).
 # Run manually for full diagnostic output:
 #
-#   ./check_system.sh [--autofix] [bayer|color] [h264|h265] [rtsp|fakesink]
+#   ./check_system.sh [--autofix] [h264|h265] [rtsp|fakesink]
 #
 # Arguments are optional and default to the same values as the pipeline script.
 # Exit code: 0 = all critical checks pass, 1 = one or more failures.
@@ -23,7 +23,6 @@ set -euo pipefail
 QUIET=0
 FATAL_ONLY=0
 AUTOFIX=0
-CAPTURE_MODE="color"
 ENCODER="h265"
 OUTPUT_MODE="rtsp"
 
@@ -32,11 +31,10 @@ for arg in "$@"; do
     --quiet)          QUIET=1 ;;
     --fatal-only)     QUIET=1; FATAL_ONLY=1 ;;
     --autofix)        AUTOFIX=1 ;;
-    bayer|color)      CAPTURE_MODE="$arg" ;;
     h264|h265)        ENCODER="$arg" ;;
     rtsp|fakesink)    OUTPUT_MODE="$arg" ;;
     *)
-      echo "Usage: $0 [--quiet] [--fatal-only] [--autofix] [bayer|color] [h264|h265] [rtsp|fakesink]" >&2
+      echo "Usage: $0 [--quiet] [--fatal-only] [--autofix] [h264|h265] [rtsp|fakesink]" >&2
       exit 1
       ;;
   esac
@@ -168,25 +166,16 @@ fi
 
 check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
 
-# NVMM support check.
-# Blocking failure only in color mode: pylonsrc must output NVMM directly
+# NVMM support check -- color mode requires pylonsrc to output NVMM directly
 # so frames go USB DMA -> GPU with no system RAM intermediate.
-# In bayer mode this is irrelevant: nvvidconv always handles the one
-# unavoidable system RAM -> NVMM copy after bayer2rgb, regardless of
-# whether pylonsrc itself advertises NVMM caps.
 if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
     ok "pylonsrc NVMM caps: zero-copy color capture path available"
-  elif [[ "$CAPTURE_MODE" == "color" ]]; then
+  else
     fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
     fail "     Color capture requires a system RAM -> GPU copy per frame."
     fail "     Upgrade to an NVMM-capable pylon GStreamer plugin:"
     fail "     github.com/basler/gst-plugin-pylon/releases"
-  else
-    warn "pylonsrc does not advertise NVMM caps (memory:NVMM)"
-    warn "     Bayer mode is unaffected -- nvvidconv handles system RAM -> NVMM after bayer2rgb."
-    warn "     Color mode would require an NVMM-capable plugin if switched:"
-    warn "     github.com/basler/gst-plugin-pylon/releases"
   fi
 fi
 
