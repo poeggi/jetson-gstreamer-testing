@@ -59,6 +59,13 @@ fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
 # for interpreting all checks that follow, and for bug reports.
 # ==============================================================================
 
+# Section 0 uses pipelines for version detection only. Disable pipefail here
+# to prevent SIGPIPE (e.g. from sed when head-1 exits early) or any other
+# non-zero exit from an informational command crashing the script under the
+# bash 5.0 bug where set -e fires inside $() even with || true present.
+# Full set -euo pipefail is restored at the start of section 1.
+set +o pipefail
+
 # Compute pylonsrc caps once here; reused in section 1 NVMM check and in
 # the version display below, avoiding a second gst-inspect-1.0 invocation.
 _PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
@@ -102,6 +109,7 @@ fi
 # 1 - GSTREAMER DEPENDENCIES
 # ==============================================================================
 
+set -o pipefail  # restore strict pipeline error handling for all real checks
 section "GStreamer dependencies"
 
 check_cmd() {
