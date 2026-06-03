@@ -63,24 +63,21 @@ Bandwidth formula: `width x height x bytes_per_pixel x fps / 1,000,000`
 
 - **B/px** = bytes per pixel transferred over USB
 - **BW at 30fps** = USB bandwidth consumed at 30 fps (the camera rated maximum)
-- **Gen1 max** = maximum achievable fps on USB 3.1 Gen1 (~380 MB/s)
-- **Gen2 max** = maximum achievable fps on USB 3.1 Gen2 (~800 MB/s)
 - (*) = sensor / firmware limit at 30 fps; not USB limited
+- Both camera and SoM are Gen1 only (~380 MB/s Basler conservative ceiling)
 
-| Format          | B/px | BW at 30fps | Gen1 max fps | Gen2 max fps | GStreamer support        |
-|-----------------|------|-------------|--------------|--------------|--------------------------|
-| BayerRG8        | 1.00 |  369 MB/s   |  30  (~)     |  30  (*)     | OK  via bayer2rgb        |
-| BayerRG12Packed | 1.50 |  553 MB/s   |  20  NO      |  30  (*)     | NO  (custom plugin req.) |
-| BayerRG10       | 2.00 |  737 MB/s   |  15  NO      |  30  (*)     | NO  (custom plugin req.) |
-| BayerRG12       | 2.00 |  737 MB/s   |  15  NO      |  30  (*)     | NO  (custom plugin req.) |
-| YCbCr422_8      | 2.00 |  737 MB/s   |  15  NO      |  30  (*)     | OK  nvvidconv direct     |
-| BGR8 / RGB8     | 3.00 | 1106 MB/s   |  10  NO      |  21  NO      | OK  nvvidconv direct     |
+| Format          | B/px | BW at 30fps | GStreamer support                    |
+|-----------------|------|-------------|--------------------------------------|
+| YCbCr422_8      | 2.00 |  737 MB/s*  | OK -- pipeline default (YUY2)        |
+| BGR8 / RGB8     | 3.00 | 1106 MB/s   | NO -- VIC rejects BGR/RGB in NVMM    |
+
+(*) Nominal at full 4096x3000. At 4096x2160/30fps = ~530 MB/s. Works on this system
+likely due to Basler Compression Beyond lossless compression reducing actual USB payload.
 
 **Key findings:**
-- **YCbCr422_8 (YUY2) at 4096x2160 / 30fps = ~530 MB/s** -- exceeds the theoretical Gen1
-  ceiling but confirmed working on BOXER-8651AI. This is the pipeline default format.
+- **YCbCr422_8 (YUY2) at 4096x2160 / 30fps = ~530 MB/s** -- exceeds theoretical Gen1
+  ceiling but confirmed working. Compression Beyond likely reduces actual USB payload.
 - BGR8/RGB8 are NOT supported by nvvidconv VIC hardware as NVMM input -- use YUY2.
-- BGR8/RGB8 at 30 fps exceeds even Gen2. Maximum is ~21 fps on Gen2.
 
 ---
 
@@ -120,10 +117,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 1920 x 1080 |  60 |  10 Mbps  |   20 Mbps    |                     |
 | 2592 x 1944 |  30 |  12 Mbps  |   22 Mbps    | 5 MP                |
 | 3840 x 2160 |  30 |  25 Mbps  |   45 Mbps    | 4K UHD              |
-| 3840 x 2160 |  60 |  40 Mbps  |   70 Mbps    | 4K UHD, Gen2 only                          |
 | 4096 x 2160 |  30 |  28 Mbps  |   50 Mbps    | 4K DCI -- **script default (H.264)**       |
-| 4096 x 3000 |  25 |  35 Mbps  |   62 Mbps    | 12 MP full sensor (Level 6.0 req.)         |
-| 4096 x 3000 |  30 |  42 Mbps  |   74 Mbps    | 12 MP full sensor (Level 6.0 req.), Gen2   |
 
 ### Bitrate table -- H.265 Main Profile (recommended for 12MP)
 
@@ -133,10 +127,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 1920 x 1080 |  60 |   6 Mbps  |   12 Mbps    |                         |
 | 2592 x 1944 |  30 |   7 Mbps  |   14 Mbps    | 5 MP                    |
 | 3840 x 2160 |  30 |  15 Mbps  |   28 Mbps    | 4K UHD                  |
-| 3840 x 2160 |  60 |  22 Mbps  |   40 Mbps    | 4K UHD, Gen2 only                          |
 | 4096 x 2160 |  30 |  16 Mbps  |   30 Mbps    | 4K DCI (--h265 flag)                       |
-| 4096 x 3000 |  25 |  20 Mbps  |   38 Mbps    | 12 MP full sensor (Level 6.0 req.)         |
-| 4096 x 3000 |  30 |  25 Mbps  |   45 Mbps    | 12 MP full sensor (Level 6.0 req.), Gen2   |
 
 ### Rate control
 
