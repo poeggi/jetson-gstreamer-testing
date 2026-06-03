@@ -18,13 +18,13 @@
 
 set -uo pipefail
 
-BUFFERS=30          # frames per synthetic test (videotestsrc)
-CAM_BUFFERS=100     # frames per camera test (pylonsrc) -- more headroom for
-                    # camera startup, encoder warmup, and EOS propagation
-W=640               # small resolution for speed; full-res at the end
-H=480
-FPS=30
-BITRATE=4000000
+BUFFERS=10          # frames per synthetic test (videotestsrc)
+CAM_BUFFERS=20      # frames per camera test (pylonsrc) -- limited for speed
+                    # but same resolution as production
+W=4096              # production resolution (NVENC H.265 Level 5.1 limit: ~8.9 MP)
+H=2160              # 4096x2160 = 8.8 MP (below limit)
+FPS=25              # production framerate
+BITRATE=28000000    # production bitrate (H.265 CBR)
 
 PASS=0
 FAIL=0
