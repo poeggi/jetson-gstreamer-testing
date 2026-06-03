@@ -32,7 +32,7 @@ CRITICAL="gst_element_make_from_uri"
 
 # Queue strings matching basler_pipeline.sh exactly
 Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
-Q_OUT="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
+Q_ENC_OUT="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
 
 # Detect pylonsrc NVMM support (same check as check_system.sh and basler_pipeline.sh)
 PYLONSRC_NVMM=0
@@ -288,7 +288,7 @@ run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)"
 
 
 # ==============================================================================
-# SECTION 7 (renumbered): Full basler_pipeline.sh equivalent (videotestsrc, no camera)
+# SECTION 7: Full basler_pipeline.sh equivalent (videotestsrc, no camera)
 #
 # Mirrors the bayer-mode pipeline from basler_pipeline.sh element by element:
 #   videotestsrc (simulating pylonsrc)
@@ -419,7 +419,7 @@ run_test "+ queue(post-enc output)" \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
    ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
-   ! ${Q_OUT} \
+   ! ${Q_ENC_OUT} \
    ! fakesink sync=false"
 
 run_test "+ h265parse config-interval=-1 (full pipeline complete)" \
@@ -434,13 +434,13 @@ run_test "+ h265parse config-interval=-1 (full pipeline complete)" \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
    ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
-   ! ${Q_OUT} \
+   ! ${Q_ENC_OUT} \
    ! h265parse config-interval=-1 \
    ! fakesink sync=false"
 
 
 # ==============================================================================
-# SECTION 7: Launch method comparison
+# SECTION 8: Launch method comparison
 #
 # Tests the complete basler_pipeline.sh-equivalent string TWO ways:
 #   [single-string] -- exactly as basler_pipeline.sh calls gst-launch
@@ -452,13 +452,13 @@ run_test "+ h265parse config-interval=-1 (full pipeline complete)" \
 echo ""
 echo "--- 8. Launch method comparison (single-string vs word-split) ---"
 
-FULL_PIPE="videotestsrc num-buffers=${BUFFERS} pattern=snow ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! bayer2rgb ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_OUT} ! h265parse config-interval=-1 ! fakesink sync=false"
+FULL_PIPE="videotestsrc num-buffers=${BUFFERS} pattern=snow ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! bayer2rgb ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! fakesink sync=false"
 
 run_compare "full pipeline (bayer -> h265 -> fakesink)" "$FULL_PIPE"
 
 
 # ==============================================================================
-# SECTION 8: RTSP output
+# SECTION 9: RTSP output
 #
 # Tests the rtspclientsink path. Skipped automatically if MediaMTX is not
 # running. Start MediaMTX first: ./mediamtx  (port 8554)
@@ -493,7 +493,7 @@ if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
      ! rtph265pay pt=96 config-interval=-1 \
      ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
 
-  RTSP_FULL="videotestsrc num-buffers=${BUFFERS} pattern=snow ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! bayer2rgb ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_OUT} ! h265parse config-interval=-1 ! rtph265pay pt=96 config-interval=-1 ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
+  RTSP_FULL="videotestsrc num-buffers=${BUFFERS} pattern=snow ! video/x-bayer,format=rggb,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! bayer2rgb ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! rtph265pay pt=96 config-interval=-1 ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
   run_compare "full RTSP pipeline (single-string vs word-split)" "$RTSP_FULL"
 else
   echo "  [SKIP] MediaMTX not running at ${RTSP_HOST}:${RTSP_PORT}"
@@ -502,7 +502,7 @@ fi
 
 
 # ==============================================================================
-# SECTION 9: pylonsrc (camera required)
+# SECTION 10: pylonsrc (camera required)
 # ==============================================================================
 echo ""
 echo "--- 10. pylonsrc (camera must be connected) ---"
@@ -544,7 +544,7 @@ run_test "pylonsrc full bayer pipeline (small res)" \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
    ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
    ! identity name=post-enc silent=true check-imperfect-timestamp=true \
-   ! ${Q_OUT} \
+   ! ${Q_ENC_OUT} \
    ! h265parse config-interval=-1 \
    ! fakesink sync=false"
 
@@ -571,7 +571,7 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
      ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
      ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
      ! identity name=post-enc silent=true check-imperfect-timestamp=true \
-     ! ${Q_OUT} \
+     ! ${Q_ENC_OUT} \
      ! h265parse config-interval=-1 \
      ! fakesink sync=false"
 else

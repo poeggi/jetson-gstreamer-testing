@@ -140,8 +140,8 @@ check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.co
 # capture path must copy every frame from system RAM into GPU memory via
 # nvvidconv (one full-frame DMA per frame). bayer mode still requires one
 # system RAM -> NVMM copy regardless (bayer2rgb has no NVMM counterpart).
-if [[ -n "$_PYLON_CAPS" ]]; then
-  if echo "$_PYLON_CAPS" | grep -qi "memory:NVMM"; then
+if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+  if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -qi "memory:NVMM"; then
     ok "pylonsrc NVMM caps: zero-copy color capture path available"
   else
     fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
@@ -181,7 +181,7 @@ case "$ENCODER" in
 esac
 if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
   _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=64,height=64,framerate=30/1"
-  if gst-launch-1.0 videotestsrc num-buffers=10 \
+  if gst-launch-1.0 -e videotestsrc num-buffers=10 \
        ! video/x-raw,format=NV12,width=64,height=64,framerate=30/1 \
        ! nvvidconv nvbuf-memory-type=4 \
        ! "${_NVENC_CAPS}" \

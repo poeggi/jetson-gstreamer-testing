@@ -150,7 +150,7 @@ OUTPUT_MODE="rtsp"
 # RTSP server endpoint -- only used when OUTPUT_MODE=rtsp.
 RTSP_HOST="127.0.0.1"
 RTSP_PORT="8554"
-RTSP_PATH="/stream"
+RTSP_PATH="/main"
 
 
 # ==============================================================================
@@ -176,6 +176,7 @@ done
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export RTSP_HOST RTSP_PORT
 if ! "${SCRIPT_DIR}/check_system.sh" --quiet "$CAPTURE_MODE" "$ENCODER" "$OUTPUT_MODE"; then
   echo "ERROR: Pre-flight checks failed. Run ./check_system.sh for details." >&2
   exit 1
