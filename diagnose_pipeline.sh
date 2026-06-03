@@ -18,7 +18,9 @@
 
 set -uo pipefail
 
-BUFFERS=30          # frames per test -- enough to confirm pipeline runs
+BUFFERS=30          # frames per synthetic test (videotestsrc)
+CAM_BUFFERS=100     # frames per camera test (pylonsrc) -- more headroom for
+                    # camera startup, encoder warmup, and EOS propagation
 W=640               # small resolution for speed; full-res at the end
 H=480
 FPS=30
@@ -382,10 +384,10 @@ run_test "+ h265parse config-interval=-1 (full color pipeline complete)" \
 # SECTION 8: pylonsrc (camera required)
 # ==============================================================================
 echo ""
-echo "--- 8. pylonsrc (camera must be connected) ---"
+echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test) ---"
 
 run_test "pylonsrc ! fakesink" \
-  "pylonsrc num-buffers=${BUFFERS} ! fakesink sync=false"
+  "pylonsrc num-buffers=${CAM_BUFFERS} ! fakesink sync=false"
 
 # Color path (primary -- matches default CAPTURE_MODE=color in basler_pipeline.sh)
 if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
@@ -394,14 +396,14 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   STOP=0
 
   run_test "pylonsrc NVMM direct -> nvvidconv(NVMM->NV12) -> fakesink" \
-    "pylonsrc num-buffers=${BUFFERS} \
+    "pylonsrc num-buffers=${CAM_BUFFERS} \
      ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! nvvidconv nvbuf-memory-type=4 \
      ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
      ! fakesink sync=false"
 
   run_test "pylonsrc full color pipeline (NVMM zero-copy, small res)" \
-    "pylonsrc num-buffers=${BUFFERS} \
+    "pylonsrc num-buffers=${CAM_BUFFERS} \
      ! video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1 \
      ! identity name=cam silent=true check-imperfect-timestamp=true \
      ! ${Q} \
