@@ -296,7 +296,11 @@ case "$ENCODER" in
       insert-sps-pps=1 \
       maxperf-enable=1"
     PARSE_ELEMENT="h264parse config-interval=-1"
-    RTP_ELEMENT="rtph264pay pt=96 config-interval=-1"
+    # Explicit RTP caps after rtph264pay are required on some JetPack/GStreamer
+    # versions: rtspclientsink uses request pads and needs the caps fully resolved
+    # before it can accept the link. Without them, pad negotiation fails at
+    # pipeline construction time with "could not link rtph264pay to rtspclientsink".
+    RTP_ELEMENT="rtph264pay pt=96 config-interval=-1 ! application/x-rtp,media=video,payload=96,clock-rate=90000,encoding-name=H264"
     ;;
   h265)
     # nvv4l2h265enc -- NVENC H.265 hardware encoder
@@ -313,7 +317,8 @@ case "$ENCODER" in
       insert-sps-pps=1 \
       maxperf-enable=1"
     PARSE_ELEMENT="h265parse config-interval=-1"
-    RTP_ELEMENT="rtph265pay pt=96 config-interval=-1"
+    # See H.264 note above -- same caps fix required for H.265.
+    RTP_ELEMENT="rtph265pay pt=96 config-interval=-1 ! application/x-rtp,media=video,payload=96,clock-rate=90000,encoding-name=H265"
     ;;
 esac
 
