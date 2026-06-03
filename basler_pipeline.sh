@@ -260,6 +260,10 @@ case "$ENCODER" in
       iframeinterval=${IFRAME_INTERVAL} \
       insert-sps-pps=1 \
       maxperf-enable=1"
+    # TODO: try vbv-size=2000000 (~2 frames at 28 Mbps) to reduce encoder
+    # internal buffering latency from ~143ms default to ~66ms. Trade-off:
+    # less headroom for scene complexity -- test with enforcement camera content.
+    # Add: vbv-size=2000000 \ to ENC_ELEMENT above.
     PARSE_ELEMENT="h264parse config-interval=-1"
     RTP_ELEMENT="rtph264pay pt=96 config-interval=-1"
     ;;
@@ -277,6 +281,7 @@ case "$ENCODER" in
       iframeinterval=${IFRAME_INTERVAL} \
       insert-sps-pps=1 \
       maxperf-enable=1"
+    # TODO: try vbv-size=2000000 (~2 frames at 28 Mbps) -- same as H.264 above.
     PARSE_ELEMENT="h265parse config-interval=-1"
     RTP_ELEMENT="rtph265pay pt=96 config-interval=-1"
     ;;
