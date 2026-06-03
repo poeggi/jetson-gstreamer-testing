@@ -23,7 +23,7 @@ CAM_BUFFERS=20      # frames per camera test (pylonsrc) -- limited for speed
                     # but same resolution as production
 W=4096              # production resolution (NVENC H.264 level limit)
 H=2160              # 4096x2160 = 8.8 MP
-FPS=25              # production framerate (Gen1 ceiling at YUY2 4096x2160)
+FPS=30              # camera native framerate (hardware fixed at 30fps)
 BITRATE=28000000    # production bitrate (H.264 CBR, 28 Mbps at 4K/25fps)
 
 PASS=0

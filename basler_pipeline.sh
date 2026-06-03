@@ -65,9 +65,9 @@ WIDTH=4096
 HEIGHT=2160
 
 # Frame rate in frames per second.
-# 4096x2160 YUY2 (2 bytes/px) at 25fps = ~442 MB/s -- at the practical Gen1 ceiling.
-# 30fps = ~530 MB/s exceeds Gen1; requires USB 3.1 Gen2 to run reliably.
-FRAMERATE=25
+# Camera native rate is 30fps (hardware fixed; framerate in caps is metadata only).
+# 4096x2160 YUY2 at 30fps = ~530 MB/s -- confirmed working on this system.
+FRAMERATE=30
 
 # Pixel format for color capture.
 # Must be a format that nvvidconv's VIC hardware accepts as NVMM input.
