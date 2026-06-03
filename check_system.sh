@@ -135,6 +135,19 @@ check_cmd gst-launch-1.0  "sudo apt install gstreamer1.0-tools"
 check_cmd gst-inspect-1.0 "sudo apt install gstreamer1.0-tools"
 check_cmd nc              "sudo apt install netcat-openbsd"
 
+# Running GStreamer pipeline check.
+# A parallel gst-launch-1.0 process will compete for the camera, NVMM pool,
+# and NVENC hardware. This is treated as a severe warning regardless of mode.
+_GST_PIDS=$(pgrep -x gst-launch-1.0 2>/dev/null || true)
+if [[ -n "$_GST_PIDS" ]]; then
+  _GST_PID_LIST=$(echo "$_GST_PIDS" | tr '\n' ' ' | sed 's/ $//')
+  warn "gst-launch-1.0 already running -- PID(s): ${_GST_PID_LIST}"
+  warn "     A parallel pipeline will compete for the camera, NVMM pool, and NVENC."
+  warn "     Stop it first: kill ${_GST_PID_LIST}"
+else
+  ok "No other gst-launch-1.0 instances running"
+fi
+
 check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
 
 # NVMM support check.
