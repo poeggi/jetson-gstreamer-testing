@@ -428,8 +428,23 @@ run_test "+ rtph265pay pt=96 config-interval=-1 (full chain to RTP payloader)" \
 echo ""
 echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test) ---"
 
+# CRITICAL: Verify camera outputs BGR8 (color), not GRAY8 (monochrome)
+echo ""
+echo "  [FORMAT CHECK] pylonsrc with pixelformat=BGR8 property"
+out=$(gst-launch-1.0 -v pylonsrc pixelformat=BGR8 num-buffers=1 ! "video/x-raw(memory:NVMM),width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
+fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)[^ ]*" | cut -d' ' -f2)
+if echo "$fmt" | grep -q "BGR8"; then
+  printf "  %-57s[OK]  camera outputs BGR8 (color)\n" "pixelformat=BGR8"
+else
+  printf "  %-57s[FAIL] camera outputs ${fmt:-UNKNOWN} (should be BGR8)\n" "pixelformat=BGR8"
+  echo "         Camera is not configured for color mode."
+  echo "         Use pylon Viewer or set camera PixelFormat to BGR8."
+  FAIL=$(( FAIL + 1 ))
+  STOP=1
+fi
+
 run_test "pylonsrc ! fakesink" 10 1 \
-  "pylonsrc num-buffers=${CAM_BUFFERS} ! fakesink sync=false"
+  "pylonsrc num-buffers=${CAM_BUFFERS} pixelformat=BGR8 ! fakesink sync=false"
 
 # Color path (primary -- matches default CAPTURE_MODE=color in basler_pipeline.sh)
 if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
