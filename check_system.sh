@@ -198,9 +198,11 @@ case "$ENCODER" in
   h265) _NVENC_ELEM="nvv4l2h265enc" ;;
 esac
 if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
-  _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=64,height=64,framerate=30/1"
+  # 320x240: well above the H.265 NVENC minimum CTU size on Orin NX.
+  # 64x64 is below the hardware minimum and causes a false failure.
+  _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=320,height=240,framerate=30/1"
   if gst-launch-1.0 -e videotestsrc num-buffers=10 \
-       ! video/x-raw,format=NV12,width=64,height=64,framerate=30/1 \
+       ! video/x-raw,format=NV12,width=320,height=240,framerate=30/1 \
        ! nvvidconv nvbuf-memory-type=4 \
        ! "${_NVENC_CAPS}" \
        ! "${_NVENC_ELEM}" ! fakesink sync=false >/dev/null 2>&1; then
