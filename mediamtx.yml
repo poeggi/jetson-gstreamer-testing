@@ -1,0 +1,12 @@
+rtspAddress: :8554
+rtpAddress: :8010
+rtcpAddress: :8011
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
+
+readBufferCount: 64
+writeQueueSize: 64
+
+paths:
+  main:
