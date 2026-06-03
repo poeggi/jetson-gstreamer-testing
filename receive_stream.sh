@@ -17,4 +17,5 @@ gst-launch-1.0 \
   ! rtph264depay \
   ! h264parse \
   ! nvv4l2decoder \
-  ! nv3dsink sync=false
+  ! nvvidconv \
+  ! nvoverlaysink sync=false
