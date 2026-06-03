@@ -84,37 +84,6 @@ run_test() {
   fi
 }
 
-# run_compare LABEL PIPELINE_STRING
-# Runs the same pipeline string TWO ways, side by side -- does NOT stop on
-# failure. Used to compare single-string vs word-split launch methods.
-run_compare() {
-  local label="$1"
-  local pipe="$2"
-
-  # Method A: single quoted string (exactly as basler_pipeline.sh calls gst-launch)
-  printf "  %-57s" "${label} [single-string]"
-  local out
-  out=$(gst-launch-1.0 -e "$pipe" 2>&1) || true
-  if echo "$out" | grep -q "${CRITICAL}"; then
-    echo "[FAIL] gst_element_make_from_uri"
-  elif echo "$out" | grep -qiE "syntax error|erroneous pipeline|no element|could not link"; then
-    echo "[FAIL] $(echo "$out" | grep -iE "syntax error|erroneous pipeline|no element|could not link" | head -1)"
-  else
-    echo "[OK]"
-  fi
-
-  # Method B: word-split (unquoted -- the proposed fix for basler_pipeline.sh).
-  # (memory:NVMM) in caps strings is not a glob pattern; no file expansion occurs.
-  printf "  %-57s" "${label} [word-split]"
-  out=$(gst-launch-1.0 -e $pipe 2>&1) || true
-  if echo "$out" | grep -q "${CRITICAL}"; then
-    echo "[FAIL] gst_element_make_from_uri"
-  elif echo "$out" | grep -qiE "syntax error|erroneous pipeline|no element|could not link"; then
-    echo "[FAIL] $(echo "$out" | grep -iE "syntax error|erroneous pipeline|no element|could not link" | head -1)"
-  else
-    echo "[OK]"
-  fi
-}
 
 
 echo ""
@@ -404,31 +373,13 @@ run_test "+ h265parse config-interval=-1 (full color pipeline complete)" \
 
 
 # ==============================================================================
-# SECTION 8: Launch method comparison
-#
-# Tests the complete basler_pipeline.sh-equivalent string TWO ways:
-#   [single-string] -- exactly as basler_pipeline.sh calls gst-launch
-#   [word-split]    -- the proposed fix (unquoted PIPELINE variable)
-#
-# If [single-string] fails but [word-split] passes, the root cause is the
-# single-argument passing method, not the pipeline content itself.
-# ==============================================================================
-echo ""
-echo "--- 8. Launch method comparison (single-string vs word-split) ---"
-
-FULL_PIPE="videotestsrc num-buffers=${BUFFERS} ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! fakesink sync=false"
-
-run_compare "full pipeline (color NVMM -> h265 -> fakesink)" "$FULL_PIPE"
-
-
-# ==============================================================================
-# SECTION 9: RTSP output
+# SECTION 8: RTSP output
 #
 # Tests the rtspclientsink path. Skipped automatically if MediaMTX is not
 # running. Start MediaMTX first: ./mediamtx  (port 8554)
 # ==============================================================================
 echo ""
-echo "--- 9. RTSP output (requires MediaMTX at 127.0.0.1:8554) ---"
+echo "--- 8. RTSP output (requires MediaMTX at 127.0.0.1:8554) ---"
 
 RTSP_HOST="127.0.0.1"
 RTSP_PORT="8554"
@@ -437,17 +388,7 @@ if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
   RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}/diag"
   STOP=0
 
-  run_test "rtph265pay ! rtspclientsink location=rtsp://... (bare)" \
-    "videotestsrc num-buffers=${BUFFERS} \
-     ! video/x-raw,format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-     ! nvvidconv nvbuf-memory-type=4 \
-     ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
-     ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 \
-     ! h265parse config-interval=-1 \
-     ! rtph265pay pt=96 config-interval=-1 \
-     ! rtspclientsink location=${RTSP_URL} protocols=tcp"
-
-  run_test "rtspclientsink location=\"rtsp://...\" (quoted URI value)" \
+  run_test "rtspclientsink location=\"rtsp://...\"" \
     "videotestsrc num-buffers=${BUFFERS} \
      ! video/x-raw,format=NV12,width=${W},height=${H},framerate=${FPS}/1 \
      ! nvvidconv nvbuf-memory-type=4 \
@@ -457,8 +398,6 @@ if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
      ! rtph265pay pt=96 config-interval=-1 \
      ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
 
-  RTSP_FULL="videotestsrc num-buffers=${BUFFERS} ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 ! identity name=cam silent=true check-imperfect-timestamp=true ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! video/x-raw(memory:NVMM),format=NV12,width=${W},height=${H},framerate=${FPS}/1 ! identity name=pre-enc silent=true check-imperfect-timestamp=true ! nvv4l2h265enc bitrate=${BITRATE} control-rate=1 profile=0 iframeinterval=${FPS} insert-sps-pps=1 maxperf-enable=1 ! identity name=post-enc silent=true check-imperfect-timestamp=true ! ${Q_ENC_OUT} ! h265parse config-interval=-1 ! rtph265pay pt=96 config-interval=-1 ! rtspclientsink location=\"${RTSP_URL}\" protocols=tcp"
-  run_compare "full RTSP pipeline (color NVMM, single-string vs word-split)" "$RTSP_FULL"
 else
   echo "  [SKIP] MediaMTX not running at ${RTSP_HOST}:${RTSP_PORT}"
   echo "         Start with: ./mediamtx"
@@ -466,10 +405,10 @@ fi
 
 
 # ==============================================================================
-# SECTION 10: pylonsrc (camera required)
+# SECTION 9: pylonsrc (camera required)
 # ==============================================================================
 echo ""
-echo "--- 10. pylonsrc (camera must be connected) ---"
+echo "--- 9. pylonsrc (camera must be connected) ---"
 
 run_test "pylonsrc ! fakesink" \
   "pylonsrc num-buffers=${BUFFERS} ! fakesink sync=false"
@@ -515,8 +454,6 @@ echo "  Results: ${PASS} passed, ${FAIL} failed"
 if [[ "$FAIL" -gt 0 ]]; then
   echo "  The first [FAIL] in each section pinpoints the"
   echo "  element or property that introduces the error."
-  echo "  Section 7 shows whether the issue is the launch"
-  echo "  method (single-string) or the pipeline content."
 fi
 echo "======================================================"
 echo ""
