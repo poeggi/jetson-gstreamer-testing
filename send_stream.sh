@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# basler_pipeline.sh
+# send_stream.sh
 #
 # Camera  : Basler a2A4096-30ucPRO  (Sony IMX253, 12.29 MP, global shutter)
 # Target  : NVIDIA Jetson Orin NX, JetPack 5.x / 6.x
@@ -109,7 +109,7 @@ CONTROL_RATE=1
 #             server running.
 #             Diagnostic tip: prefix launch with GST_DEBUG=*:3 for verbose caps
 #             negotiation tracing.  Example:
-#               GST_DEBUG=*:3 ./basler_pipeline.sh 2>&1 | grep -i caps
+#               GST_DEBUG=*:3 ./send_stream.sh 2>&1 | grep -i caps
 #
 # "rtsp"      Push encoded stream to an RTSP server via ANNOUNCE/RECORD (TCP).
 #             rtspclientsink reads NVMM buffers directly from the encoder --

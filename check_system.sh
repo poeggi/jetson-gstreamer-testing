@@ -2,8 +2,8 @@
 # ==============================================================================
 # check_system.sh
 #
-# Dependency and system health checks for basler_pipeline.sh.
-# Called automatically by basler_pipeline.sh before launch (quiet mode).
+# Dependency and system health checks for send_stream.sh.
+# Called automatically by send_stream.sh before launch (quiet mode).
 # Run manually for full diagnostic output:
 #
 #   ./check_system.sh [--autofix] [h264|h265] [rtsp|fakesink]

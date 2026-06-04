@@ -4,7 +4,7 @@
 #
 # Systematically tests each GStreamer pipeline stage on Jetson Orin NX,
 # adding one element at a time to identify exactly which element fails.
-# Mirrors basler_pipeline.sh: same elements, same properties, same defaults
+# Mirrors send_stream.sh: same elements, same properties, same defaults
 # (color YUY2 NVMM capture, H.264, fakesink output).
 #
 # Section 7 uses videotestsrc as source. videotestsrc outputs system RAM
@@ -33,11 +33,11 @@ STOP=0              # set to 1 on first failure; all subsequent tests are skippe
 
 CRITICAL="gst_element_make_from_uri"
 
-# Queue strings matching basler_pipeline.sh exactly
+# Queue strings matching send_stream.sh exactly
 Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
 Q_ENC_OUT="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
 
-# Detect pylonsrc NVMM support (same check as check_system.sh and basler_pipeline.sh)
+# Detect pylonsrc NVMM support (same check as check_system.sh and send_stream.sh)
 PYLONSRC_NVMM=0
 if gst-inspect-1.0 pylonsrc >/dev/null 2>&1 && \
    gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
@@ -50,7 +50,7 @@ fi
 # ==============================================================================
 
 # run_test LABEL [TIMEOUT_SEC] PIPELINE_STRING...
-# Passes the pipeline as quoted args, matching basler_pipeline.sh.
+# Passes the pipeline as quoted args, matching send_stream.sh.
 # Stops at the first failure (STOP=1).
 # Optional TIMEOUT_SEC (default 30): if pipeline times out after this many
 # seconds, treat as [OK] if timeout_is_ok=1, else [FAIL].
@@ -245,7 +245,7 @@ run_test "... ! nvv4l2h264enc ! h264parse config-interval=-1 ! fakesink" \
 # ==============================================================================
 # SECTION 6: pylonsrc NVMM capability
 #
-# Mirrors the mandatory check in check_system.sh and basler_pipeline.sh.
+# Mirrors the mandatory check in check_system.sh and send_stream.sh.
 # Tests whether the color NVMM-direct path is available on this system.
 # Also validates that the NVMM-to-NVMM pipeline (nvvidconv NVMM->NVMM)
 # works correctly -- this is the path used in color mode after pylonsrc
@@ -288,9 +288,9 @@ run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)"
 
 
 # ==============================================================================
-# SECTION 7: Full basler_pipeline.sh equivalent (videotestsrc, color mode, no camera)
+# SECTION 7: Full send_stream.sh equivalent (videotestsrc, color mode, no camera)
 #
-# Mirrors the color-mode pipeline from basler_pipeline.sh element by element.
+# Mirrors the color-mode pipeline from send_stream.sh element by element.
 # videotestsrc cannot output NVMM directly, so a BGRx caps step simulates
 # the format pylonsrc would put into NVMM (in production: USB DMA -> GPU).
 #
@@ -300,7 +300,7 @@ run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)"
 #   -> nvvidconv nvbuf-memory-type=4    BGRx -> NV12, system RAM -> NVMM
 #   -> NVMM NV12 caps
 #   -> identity(pre-enc)
-#   -> nvv4l2h264enc (all props as in basler_pipeline.sh)
+#   -> nvv4l2h264enc (all props as in send_stream.sh)
 #   -> identity(post-enc)
 #   -> queue(post-enc)
 #   -> h264parse config-interval=-1
@@ -309,7 +309,7 @@ run_test "nvmm seed -> nvv4l2h265enc -> h265parse -> fakesink (full NVMM chain)"
 # The first [FAIL] here pinpoints the element that is the root cause.
 # ==============================================================================
 echo ""
-echo "--- 7. Full basler_pipeline.sh equivalent -- color mode (videotestsrc, no camera) ---"
+echo "--- 7. Full send_stream.sh equivalent -- color mode (videotestsrc, no camera) ---"
 STOP=0  # reset so this section always runs regardless of earlier failures
 
 run_test "src ! BGRx caps ! fakesink" \
@@ -357,7 +357,7 @@ run_test "+ identity name=pre-enc check-imperfect-timestamp=true" \
    ! identity name=pre-enc silent=true check-imperfect-timestamp=true \
    ! fakesink sync=false"
 
-run_test "+ nvv4l2h264enc (all basler_pipeline.sh props)" \
+run_test "+ nvv4l2h264enc (all send_stream.sh props)" \
   "videotestsrc num-buffers=${BUFFERS} \
    ! video/x-raw,format=BGRx,width=${W},height=${H},framerate=${FPS}/1 \
    ! identity name=cam silent=true check-imperfect-timestamp=true \
@@ -467,7 +467,7 @@ fi
 run_test "pylonsrc ! fakesink" 10 1 \
   "pylonsrc num-buffers=${CAM_BUFFERS} ! fakesink sync=false"
 
-# Color path (primary -- YUY2 NVMM zero-copy, matches basler_pipeline.sh default)
+# Color path (primary -- YUY2 NVMM zero-copy, matches send_stream.sh default)
 if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
   echo ""
   echo "  Color path (primary -- YUY2 NVMM zero-copy)"
