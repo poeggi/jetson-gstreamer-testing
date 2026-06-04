@@ -1,15 +1,18 @@
-# Basler a2A4096-30ucPRO -- GStreamer Pipeline Reference
+# Basler a2A4096-30ucPRO -- GStreamer Pipeline
 
-**Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 5.x / 6.x) &nbsp;|&nbsp; **Script:** `basler_pipeline.sh`
+**Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 5.x / 6.x)\
+&nbsp;|&nbsp; **Script:** `basler_pipeline.sh`
 
 Zero-copy GStreamer pipeline capturing 4K (4096x2160) color (YUY2) from a 12 MP sensor
 over USB3, encoding to H.264 or H.265 via NVENC hardware, and streaming over RTSP.
 Includes a system health check script and a full bandwidth and bitrate reference for
 this camera and interface.
 
+Requires mediamtx running (to steam RTSP), sample config included in repo.
+
 ---
 
-## 1 - Camera Specifications
+## 1 - Basler Camera Specifications
 
 | Property              | Value                                          |
 |-----------------------|------------------------------------------------|
@@ -57,7 +60,7 @@ Gen2 (10 Gbps) is not available on either side and is not relevant to this setup
 
 ---
 
-## 3 - Pixel Format Bandwidth at Full Resolution (4096 x 3000)
+## 3 - Pixel Format USB Bandwidth Need at Full Resolution (4096 x 3000)
 
 Bandwidth formula: `width x height x bytes_per_pixel x fps / 1,000,000`
 
@@ -103,7 +106,9 @@ likely due to Basler Compression Beyond lossless compression reducing actual USB
 - Recommended for archival or NVR where bitrate savings justify the higher decode requirement
 - Verify your RTSP client / NVR supports H.265 before deploying
 
-### Bitrate table -- H.264 High Profile
+## 5-  Bitrate tables
+
+### H.264 High Profile
 
 - **Streaming** = acceptable for remote monitoring; minor artefacts possible in fast motion or high-detail areas under close inspection
 - **High quality** = broadcast-level; artefacts not visible at normal viewing distance or during frame-by-frame inspection
@@ -119,7 +124,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 3840 x 2160 |  30 |  25 Mbps  |   45 Mbps    | 4K UHD              |
 | 4096 x 2160 |  30 |  28 Mbps  |   50 Mbps    | 4K DCI -- **script default (H.264)**       |
 
-### Bitrate table -- H.265 Main Profile (recommended for 12MP)
+### H.265 Main Profile (recommended)
 
 | Resolution  | FPS | Streaming | High quality | Notes                   |
 |-------------|-----|-----------|--------------|-------------------------|
@@ -127,7 +132,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 1920 x 1080 |  60 |   6 Mbps  |   12 Mbps    |                         |
 | 2592 x 1944 |  30 |   7 Mbps  |   14 Mbps    | 5 MP                    |
 | 3840 x 2160 |  30 |  15 Mbps  |   28 Mbps    | 4K UHD                  |
-| 4096 x 2160 |  30 |  16 Mbps  |   30 Mbps    | 4K DCI (--h265 flag)                       |
+| 4096 x 2160 |  30 |  16 Mbps  |   30 Mbps    | 4K DCI **script with --h265 flag**        |
 
 ### Rate control
 
@@ -141,14 +146,14 @@ allocates more bits to complex frames. Can produce momentary bandwidth spikes
 
 ### Keyframe interval
 
-Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second (30 at 30 fps -- the script default).
+Script default is 15 (one iFrame every 15 frames). Set `IFRAME_INTERVAL = FRAMERATE` for 1 keyframe per second.
 
 - Shorter interval: faster stream join and packet-loss recovery; higher overhead
 - Longer interval: lower overhead; slower recovery -- avoid above 2x FRAMERATE for RTSP over WAN
 
 ---
 
-## 5 - Recommended Configurations
+## 6 - Recommended Configurations
 
 Both camera and SoM are USB 3.1 Gen1 only. Nominal YUY2 bandwidth at 4096x2160/30fps
 (~530 MB/s) exceeds the theoretical Gen1 ceiling but works in practice -- likely due to
@@ -156,13 +161,13 @@ Basler Compression Beyond lossless compression reducing actual USB payload to ~1
 
 | Goal                       | Format      | Resolution  | FPS | Nominal BW | Notes                             |
 |----------------------------|-------------|-------------|-----|------------|-----------------------------------|
-| **4K DCI color (default)** | YCbCr422_8  | 4096 x 2160 |  30 | ~530 MB/s  | Confirmed working (Compression Beyond likely active) |
+| **4K DCI color (default)** | YCbCr422_8  | 4096 x 2160 |  30 | ~530 MB/s  | Confirmed working (Compression Beyond likely active (TBC!)) |
 | 4K UHD color               | YCbCr422_8  | 3840 x 2160 |  30 |  498 MB/s  | OK                                |
 | 1080p high fps             | YCbCr422_8  | 1920 x 1080 |  60 |  249 MB/s  | OK                                |
 
 ---
 
-## 6 - GStreamer Element Compatibility
+## 7 - GStreamer Element Compatibility
 
 | Format          | GStreamer media type           | NVMM input | nvvidconv | Pipeline path               |
 |-----------------|-------------------------------|------------|-----------|-----------------------------|
@@ -210,7 +215,7 @@ RGB formats (BGR8/RGB8) are NOT accepted by VIC as NVMM input -- use YUY2 instea
 
 ---
 
-## 7 - RTSP Client Configuration (Low Latency)
+## 8 - RTSP Client Configuration (Low Latency)
 
 The pipeline sender contributes ~60-100ms of latency (camera exposure + NVENC H.264 ULL preset).
 Most RTSP players add a large jitter buffer on top by default and must be tuned.
@@ -279,7 +284,7 @@ For H.265 streams (when using `--h265` flag) replace `rtph264depay`, `h264parse`
 
 ---
 
-## 8 - Camera Pixel Format Configuration
+## 9 - Camera Pixel Format Configuration
 
 The pipeline uses YCbCr422_8 (YUY2) -- the only color format that works in NVMM mode
 with nvvidconv on Jetson. Configure via pylon Viewer (persistent, stored in camera):
@@ -292,3 +297,5 @@ with nvvidconv on Jetson. Configure via pylon Viewer (persistent, stored in came
 **Note:** pylonsrc does not expose a GStreamer property for pixel format -- it must be
 set in pylon Viewer or via the camera's persistent user set. Without explicit format
 constraint in caps, pylonsrc defaults to GRAY8 (monochrome).
+
+NOTE: the Gray8 pipeline has NOT yet been confirmed working!
