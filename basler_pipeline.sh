@@ -90,7 +90,7 @@ BITRATE=28000000
 # Rule of thumb: set equal to FRAMERATE for 1 IDR per second (good for RTSP).
 # Lower -> faster stream join and packet-loss recovery, slightly higher bitrate.
 # Higher -> lower overhead; avoid going above 2x FRAMERATE for RTSP streams.
-IFRAME_INTERVAL=30
+IFRAME_INTERVAL=15
 
 # Rate control mode:
 #   1 = CBR (constant bitrate) -- recommended for RTSP.
