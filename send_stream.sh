@@ -10,10 +10,10 @@
 #
 # Usage: ./send_stream.sh [options]
 #   --fakesink            encode and discard (no RTSP server needed)
+#   --main / --no-main    enable/disable MAIN stream (overrides stream.conf)
 #   --main-h264           override MAIN encoder to H.264
 #   --main-h265           override MAIN encoder to H.265
-#   --sub                 enable SUB stream (overrides stream.conf)
-#   --no-sub              disable SUB stream (overrides stream.conf)
+#   --sub / --no-sub      enable/disable SUB stream (overrides stream.conf)
 #   --sub-h264            override SUB encoder to H.264
 #   --sub-h265            override SUB encoder to H.265
 #
@@ -47,6 +47,8 @@ source "$CONF"
 for arg in "$@"; do
   case "$arg" in
     --fakesink)   OUTPUT_MODE="fakesink" ;;
+    --main)       MAIN_ENABLED="true" ;;
+    --no-main)    MAIN_ENABLED="false" ;;
     --main-h264)  MAIN_ENCODER="h264" ;;
     --main-h265)  MAIN_ENCODER="h265" ;;
     --sub)        SUB_ENABLED="true" ;;
@@ -55,7 +57,7 @@ for arg in "$@"; do
     --sub-h265)   SUB_ENCODER="h265" ;;
     *)
       echo "ERROR: Unknown argument: $arg"
-      echo "Usage: $0 [--fakesink] [--main-h264|--main-h265] [--sub|--no-sub] [--sub-h264|--sub-h265]"
+      echo "Usage: $0 [--fakesink] [--main|--no-main] [--main-h264|--main-h265] [--sub|--no-sub] [--sub-h264|--sub-h265]"
       exit 1
       ;;
   esac
@@ -192,15 +194,19 @@ IDN_POST="identity name=post-enc silent=true check-imperfect-timestamp=true"
 # Source segment: camera capture through format conversion (shared by all branches)
 SRC="pylonsrc ${SERIAL_PROP} ! ${CAPS_SRC} ! ${IDN_CAM} ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_NVMM}"
 
-if [[ "$SUB_ENABLED" == "true" ]]; then
-  # Dual stream: tee after source, two encoder branches
-  CAPS_SUB_NVMM="video/x-raw(memory:NVMM),format=NV12,width=${SUB_WIDTH},height=${SUB_HEIGHT},framerate=${FRAMERATE}/1"
-  PIPELINE="${SRC} ! tee name=t \
-    t. ! ${Q} ! ${IDN_PRE} ! ${MAIN_ENC} ! ${IDN_POST} ! ${Q_ENC} ! ${MAIN_PARSE} ! ${MAIN_OUTPUT} \
-    t. ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_SUB_NVMM} ! ${SUB_ENC} ! ${Q_ENC} ! ${SUB_PARSE} ! ${SUB_OUTPUT}"
-else
-  # Single stream
+[[ "$MAIN_ENABLED" != "true" && "$SUB_ENABLED" != "true" ]] && {
+  echo "ERROR: Both MAIN and SUB are disabled. Enable at least one stream." >&2; exit 1; }
+
+CAPS_SUB_NVMM="video/x-raw(memory:NVMM),format=NV12,width=${SUB_WIDTH},height=${SUB_HEIGHT},framerate=${FRAMERATE}/1"
+MAIN_BRANCH="${Q} ! ${IDN_PRE} ! ${MAIN_ENC} ! ${IDN_POST} ! ${Q_ENC} ! ${MAIN_PARSE} ! ${MAIN_OUTPUT}"
+SUB_BRANCH="${Q} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_SUB_NVMM} ! ${SUB_ENC} ! ${Q_ENC} ! ${SUB_PARSE} ! ${SUB_OUTPUT}"
+
+if [[ "$MAIN_ENABLED" == "true" && "$SUB_ENABLED" == "true" ]]; then
+  PIPELINE="${SRC} ! tee name=t t. ! ${MAIN_BRANCH} t. ! ${SUB_BRANCH}"
+elif [[ "$MAIN_ENABLED" == "true" ]]; then
   PIPELINE="${SRC} ! ${IDN_PRE} ! ${MAIN_ENC} ! ${IDN_POST} ! ${Q_ENC} ! ${MAIN_PARSE} ! ${MAIN_OUTPUT}"
+else
+  PIPELINE="${SRC} ! ${SUB_BRANCH}"
 fi
 
 
@@ -213,16 +219,19 @@ echo "  Basler a2A4096-30ucPRO -- Jetson Orin NX"
 echo "======================================================"
 echo "  Camera         : ${CAMERA_SERIAL:-auto-detect}"
 echo "  Capture        : ${MAIN_WIDTH}x${MAIN_HEIGHT} @ ${FRAMERATE}fps ${PIXEL_FORMAT} (~${BW} MB/s)"
-echo "  MAIN stream    : ${MAIN_ENCODER^^} ${MAIN_BITRATE}bps -> ${OUTPUT_MODE}${MAIN_RTSP_PATH:+ (${MAIN_RTSP_PATH})}"
-if [[ "$SUB_ENABLED" == "true" ]]; then
-echo "  SUB stream     : ${SUB_ENCODER^^} ${SUB_BITRATE}bps ${SUB_WIDTH}x${SUB_HEIGHT} -> ${OUTPUT_MODE}${SUB_RTSP_PATH:+ (${SUB_RTSP_PATH})}"
+if [[ "$MAIN_ENABLED" == "true" ]]; then
+echo "  MAIN stream    : ${MAIN_ENCODER^^} ${MAIN_BITRATE}bps ${MAIN_WIDTH}x${MAIN_HEIGHT} -> ${OUTPUT_MODE} (${MAIN_RTSP_PATH})"
 else
-echo "  SUB stream     : disabled (use --sub to enable)"
+echo "  MAIN stream    : disabled  (--main or set MAIN_ENABLED=true in stream.conf)"
+fi
+if [[ "$SUB_ENABLED" == "true" ]]; then
+echo "  SUB stream     : ${SUB_ENCODER^^} ${SUB_BITRATE}bps ${SUB_WIDTH}x${SUB_HEIGHT} -> ${OUTPUT_MODE} (${SUB_RTSP_PATH})"
+else
+echo "  SUB stream     : disabled  (--sub or set SUB_ENABLED=true in stream.conf)"
 fi
 if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
-echo "  MAIN URL       : rtsp://${RTSP_HOST}:${RTSP_PORT}${MAIN_RTSP_PATH}"
-[[ "$SUB_ENABLED" == "true" ]] && \
-echo "  SUB URL        : rtsp://${RTSP_HOST}:${RTSP_PORT}${SUB_RTSP_PATH}"
+[[ "$MAIN_ENABLED" == "true" ]] && echo "  MAIN URL       : rtsp://${RTSP_HOST}:${RTSP_PORT}${MAIN_RTSP_PATH}"
+[[ "$SUB_ENABLED"  == "true" ]] && echo "  SUB URL        : rtsp://${RTSP_HOST}:${RTSP_PORT}${SUB_RTSP_PATH}"
 fi
 echo "======================================================"
 echo ""
