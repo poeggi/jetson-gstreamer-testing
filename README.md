@@ -8,7 +8,47 @@ over USB3, encoding to H.264 or H.265 via NVENC hardware, and streaming over RTS
 Includes a system health check script and a full bandwidth and bitrate reference for
 this camera and interface.
 
-Requires mediamtx running (to steam RTSP), sample config included in repo.
+Requires mediamtx running (to stream RTSP), sample config included in repo.
+
+---
+
+## 0 - Quick Start
+
+### Configuration
+Edit **`stream.conf`** to set defaults (sourced by `send_stream.sh`):
+- `MAIN_ENABLED` / `SUB_ENABLED` — enable/disable each stream
+- `MAIN_ENCODER` / `SUB_ENCODER` — `h264` or `h265`
+- `MAIN_BITRATE` / `SUB_BITRATE` — in bps
+- `RTSP_HOST` / `RTSP_PORT` — MediaMTX server address
+
+### Running
+```bash
+./send_stream.sh                  # both streams (MAIN H.265 4K, SUB H.264 1080p)
+./send_stream.sh --no-sub         # MAIN only
+./send_stream.sh --no-main        # SUB only
+./send_stream.sh --main-h264      # override MAIN encoder
+./send_stream.sh --sub-h265       # override SUB encoder
+./send_stream.sh --fakesink       # test without RTSP server
+```
+
+### Viewing (Windows)
+```powershell
+.\view_stream.ps1                 # MAIN stream (H.265 4K)
+.\view_stream.ps1 sub             # SUB stream (H.264 1080p)
+```
+
+### Viewing (Linux / Jetson)
+```bash
+./view_stream.sh                  # MAIN stream via VLC
+./receive_stream.sh               # MAIN stream via GStreamer (hardware decode)
+./receive_stream.sh sub           # SUB stream via GStreamer
+```
+
+### RTSP URLs
+| Stream | Open | Authenticated |
+|--------|------|---------------|
+| MAIN (H.265 4K) | `rtsp://host:8554/main` | `rtsp://guest:guest@host:8554/main-auth` |
+| SUB (H.264 1080p) | `rtsp://host:8554/sub` | `rtsp://guest:guest@host:8554/sub-auth` |
 
 ---
 
@@ -122,7 +162,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 1920 x 1080 |  60 |  10 Mbps  |   20 Mbps    |                     |
 | 2592 x 1944 |  30 |  12 Mbps  |   22 Mbps    | 5 MP                |
 | 3840 x 2160 |  30 |  25 Mbps  |   45 Mbps    | 4K UHD              |
-| 4096 x 2160 |  30 |  28 Mbps  |   50 Mbps    | 4K DCI -- **script default (H.264)**       |
+| 4096 x 2160 |  30 |  28 Mbps  |   50 Mbps    | 4K DCI -- **SUB default (H.264)**          |
 
 ### H.265 Main Profile (recommended)
 
@@ -132,7 +172,7 @@ Add ~30% for high-motion content. Subtract ~20% for essentially static scenes.
 | 1920 x 1080 |  60 |   6 Mbps  |   12 Mbps    |                         |
 | 2592 x 1944 |  30 |   7 Mbps  |   14 Mbps    | 5 MP                    |
 | 3840 x 2160 |  30 |  15 Mbps  |   28 Mbps    | 4K UHD                  |
-| 4096 x 2160 |  30 |  16 Mbps  |   30 Mbps    | 4K DCI **script with --h265 flag**        |
+| 4096 x 2160 |  30 |  16 Mbps  |   30 Mbps    | 4K DCI -- **MAIN default (H.265)**         |
 
 ### Rate control
 
@@ -252,29 +292,32 @@ Modern VLC (3.x+) includes H.265 support on all platforms.
 
 Software decode (any Linux machine):
 
+**MAIN stream (H.265 default)** — software decode:
 ```bash
 gst-launch-1.0 \
   rtspsrc location=rtsp://192.168.1.252:8554/main latency=200 protocols=tcp \
-  ! rtph264depay \
-  ! h264parse \
-  ! avdec_h264 \
-  ! videoconvert \
-  ! autovideosink sync=false
+  ! rtph265depay ! h265parse ! avdec_h265 ! videoconvert ! autovideosink sync=false
 ```
 
-Hardware decode (receiving Jetson with NVDEC):
-
+**SUB stream (H.264 default)** — software decode:
 ```bash
 gst-launch-1.0 \
-  rtspsrc location=rtsp://192.168.1.252:8554/main latency=200 protocols=tcp \
-  ! rtph264depay \
-  ! h264parse \
-  ! nvv4l2decoder \
-  ! nv3dsink sync=false
+  rtspsrc location=rtsp://192.168.1.252:8554/sub latency=200 protocols=tcp \
+  ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! autovideosink sync=false
 ```
 
-For H.265 streams (when using `--h265` flag) replace `rtph264depay`, `h264parse`, `avdec_h264` with
-`rtph265depay`, `h265parse`, `avdec_h265` (or keep `nvv4l2decoder` -- it handles both codecs).
+Hardware decode on Jetson (nvv4l2decoder handles both H.264 and H.265):
+```bash
+# MAIN (H.265)
+gst-launch-1.0 rtspsrc location=rtsp://192.168.1.252:8554/main latency=200 protocols=tcp \
+  ! rtph265depay ! h265parse ! nvv4l2decoder ! nv3dsink sync=false
+
+# SUB (H.264)
+gst-launch-1.0 rtspsrc location=rtsp://192.168.1.252:8554/sub latency=200 protocols=tcp \
+  ! rtph264depay ! h264parse ! nvv4l2decoder ! nv3dsink sync=false
+```
+
+Use `receive_stream.sh main` or `receive_stream.sh sub` for the above with correct codec pre-configured.
 
 | Parameter      | Effect |
 |----------------|--------|

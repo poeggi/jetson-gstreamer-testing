@@ -23,7 +23,7 @@ set -euo pipefail
 QUIET=0
 FATAL_ONLY=0
 AUTOFIX=0
-ENCODER="h264"
+ENCODER="h265"
 OUTPUT_MODE="rtsp"
 
 for arg in "$@"; do
