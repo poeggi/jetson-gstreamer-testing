@@ -204,7 +204,7 @@ SUB_BRANCH="${Q} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_SUB_NVMM} ! ${SUB_ENC}
 if [[ "$MAIN_ENABLED" == "true" && "$SUB_ENABLED" == "true" ]]; then
   PIPELINE="${SRC} ! tee name=t t. ! ${MAIN_BRANCH} t. ! ${SUB_BRANCH}"
 elif [[ "$MAIN_ENABLED" == "true" ]]; then
-  PIPELINE="${SRC} ! ${MAIN_BRANCH}"
+  PIPELINE="${SRC} ! ${IDN_PRE} ! ${MAIN_ENC} ! ${IDN_POST} ! ${Q_ENC} ! ${MAIN_PARSE} ! ${MAIN_OUTPUT}"
 else
   PIPELINE="${SRC} ! ${SUB_BRANCH}"
 fi
