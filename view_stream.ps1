@@ -1,11 +1,17 @@
 param(
-    [string]$Host = "192.168.1.252",
-    [string]$Port = "8554",
-    [string]$Path = "/main",
-    [int]$Caching = 200   # 200ms minimum confirmed for H.265; below this VLC drops frames
+    [string]$Stream  = "main",        # main | sub
+    [string]$Host    = "192.168.1.252",
+    [string]$Port    = "8554",
+    [int]   $Caching = 200            # 200ms minimum confirmed for H.265; below this VLC drops frames
 )
 
-$url = "rtsp://${Host}:${Port}${Path}"
+$paths = @{ main = "/main"; sub = "/sub" }
+if (-not $paths.ContainsKey($Stream)) {
+    Write-Error "Unknown stream '$Stream'. Use 'main' or 'sub'."
+    exit 1
+}
+
+$url = "rtsp://${Host}:${Port}$($paths[$Stream])"
 $vlc = "${env:ProgramFiles}\VideoLAN\VLC\vlc.exe"
 
 if (-not (Test-Path $vlc)) {
@@ -16,5 +22,5 @@ if (-not (Test-Path $vlc)) {
     exit 1
 }
 
-Write-Host "Connecting to $url (caching=${Caching}ms)"
+Write-Host "Connecting to $Stream stream: $url (caching=${Caching}ms)"
 & $vlc --rtsp-tcp --network-caching=$Caching --clock-synchro=0 --no-audio $url
