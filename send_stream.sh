@@ -13,17 +13,26 @@
 #   --main / --no-main    enable/disable MAIN stream (overrides stream.conf)
 #   --main-h264           override MAIN encoder to H.264
 #   --main-h265           override MAIN encoder to H.265
-#   --sub / --no-sub      enable/disable SUB stream (overrides stream.conf)
+#   --enable-sub / --disable-sub   enable/disable SUB stream (overrides stream.conf)
 #   --sub-h264            override SUB encoder to H.264
 #   --sub-h265            override SUB encoder to H.265
 #
-# Pipeline (single stream):
-#   pylonsrc(YUY2/NVMM) -> nvvidconv(NV12/NVMM) -> encoder -> parser -> rtspclientsink
+# Pipeline (single stream -- MAIN only, default):
 #
-# Pipeline (dual stream via tee):
-#   pylonsrc(YUY2/NVMM) -> nvvidconv(NV12/NVMM) -> tee
-#     -> [MAIN: encoder(4K) -> parser -> rtspclientsink(/main)]
-#     -> [SUB:  nvvidconv(scale) -> encoder(1080p) -> parser -> rtspclientsink(/sub)]
+#  pylonsrc -> nvvidconv -> enc -> queue -> parse -> rtspsink
+#  [YUY2/NVMM] [NV12/NVMM]         [4K]              [/main]
+#
+# Pipeline (dual stream via tee -- SUB_ENABLED=true):
+#
+#  pylonsrc -> nvvidconv -> tee
+#  [YUY2/NVMM] [NV12/NVMM]   |
+#                            +----------> enc -> queue -> parse -> rtspsink
+#                            |            [4K]                     [/main]
+#                            |
+#                            \-> scale -> enc -> queue -> parse -> rtspsink
+#                                   [4K->1080p]                    [/sub]
+#
+# (identity probe elements omitted; only functional pipeline stages shown)
 #
 # See README.md for bandwidth and bitrate reference.
 # ==============================================================================
@@ -51,13 +60,13 @@ for arg in "$@"; do
     --no-main)    MAIN_ENABLED="false" ;;
     --main-h264)  MAIN_ENCODER="h264" ;;
     --main-h265)  MAIN_ENCODER="h265" ;;
-    --sub)        SUB_ENABLED="true" ;;
-    --no-sub)     SUB_ENABLED="false" ;;
+    --enable-sub)   SUB_ENABLED="true" ;;
+    --disable-sub)  SUB_ENABLED="false" ;;
     --sub-h264)   SUB_ENCODER="h264" ;;
     --sub-h265)   SUB_ENCODER="h265" ;;
     *)
       echo "ERROR: Unknown argument: $arg"
-      echo "Usage: $0 [--fakesink] [--main|--no-main] [--main-h264|--main-h265] [--sub|--no-sub] [--sub-h264|--sub-h265]"
+      echo "Usage: $0 [--fakesink] [--main|--no-main] [--main-h264|--main-h265] [--enable-sub|--disable-sub] [--sub-h264|--sub-h265]"
       exit 1
       ;;
   esac
@@ -190,6 +199,8 @@ Q_ENC="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
 IDN_CAM="identity name=cam silent=true check-imperfect-timestamp=true"
 IDN_PRE="identity name=pre-enc silent=true check-imperfect-timestamp=true"
 IDN_POST="identity name=post-enc silent=true check-imperfect-timestamp=true"
+IDN_SUB_PRE="identity name=sub-pre-enc silent=true check-imperfect-timestamp=true"
+IDN_SUB_POST="identity name=sub-post-enc silent=true check-imperfect-timestamp=true"
 
 # Source segment: camera capture through format conversion (shared by all branches)
 SRC="pylonsrc ${SERIAL_PROP} ! ${CAPS_SRC} ! ${IDN_CAM} ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_NVMM}"
@@ -199,7 +210,7 @@ SRC="pylonsrc ${SERIAL_PROP} ! ${CAPS_SRC} ! ${IDN_CAM} ! ${Q} ! nvvidconv nvbuf
 
 CAPS_SUB_NVMM="video/x-raw(memory:NVMM),format=NV12,width=${SUB_WIDTH},height=${SUB_HEIGHT},framerate=${FRAMERATE}/1"
 MAIN_BRANCH="${Q} ! ${IDN_PRE} ! ${MAIN_ENC} ! ${IDN_POST} ! ${Q_ENC} ! ${MAIN_PARSE} ! ${MAIN_OUTPUT}"
-SUB_BRANCH="${Q} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_SUB_NVMM} ! ${SUB_ENC} ! ${Q_ENC} ! ${SUB_PARSE} ! ${SUB_OUTPUT}"
+SUB_BRANCH="${Q} ! ${IDN_SUB_PRE} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_SUB_NVMM} ! ${SUB_ENC} ! ${IDN_SUB_POST} ! ${Q_ENC} ! ${SUB_PARSE} ! ${SUB_OUTPUT}"
 
 if [[ "$MAIN_ENABLED" == "true" && "$SUB_ENABLED" == "true" ]]; then
   PIPELINE="${SRC} ! tee name=t t. ! ${MAIN_BRANCH} t. ! ${SUB_BRANCH}"
@@ -227,7 +238,7 @@ fi
 if [[ "$SUB_ENABLED" == "true" ]]; then
 echo "  SUB stream     : ${SUB_ENCODER^^} ${SUB_BITRATE}bps ${SUB_WIDTH}x${SUB_HEIGHT} -> ${OUTPUT_MODE} (${SUB_RTSP_PATH})"
 else
-echo "  SUB stream     : disabled  (--sub or set SUB_ENABLED=true in stream.conf)"
+echo "  SUB stream     : disabled  (--enable-sub or set SUB_ENABLED=true in stream.conf)"
 fi
 if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
 [[ "$MAIN_ENABLED" == "true" ]] && echo "  MAIN URL       : rtsp://${RTSP_HOST}:${RTSP_PORT}${MAIN_RTSP_PATH}"

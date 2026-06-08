@@ -23,8 +23,9 @@ Edit **`stream.conf`** to set defaults (sourced by `send_stream.sh`):
 
 ### Running
 ```bash
-./send_stream.sh                  # both streams (MAIN H.265 4K, SUB H.264 1080p)
-./send_stream.sh --no-sub         # MAIN only
+./send_stream.sh                  # MAIN only (default)
+./send_stream.sh --enable-sub     # both streams (MAIN H.265 4K, SUB H.264 1080p)
+./send_stream.sh --disable-sub    # MAIN only (explicit)
 ./send_stream.sh --no-main        # SUB only
 ./send_stream.sh --main-h264      # override MAIN encoder
 ./send_stream.sh --sub-h265       # override SUB encoder
