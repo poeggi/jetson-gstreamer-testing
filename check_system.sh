@@ -616,7 +616,8 @@ fi
 # (no named property). Some plugin versions silently ignore the caps framerate and
 # run at the camera's hardware maximum. Test by requesting a reduced framerate
 # and comparing against the negotiated result.
-if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+# Skipped in --fatal-only mode: opens/closes camera (1-3 s), produces warn/info only.
+if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   _TEST_FPS="15"
   _CAPS_OUT=$(gst-launch-1.0 -v pylonsrc num-buffers=1 \
     ! "video/x-raw(memory:NVMM),format=YUY2,framerate=${_TEST_FPS}/1" \
@@ -641,7 +642,8 @@ fi
 # camera FPGA, reducing USB bandwidth by 2-3x. gst-plugin-pylon decompresses
 # transparently. This may explain why 530 MB/s YUY2 works on Gen1.
 # Check: (1) plugin supports decompression, (2) camera has it enabled.
-if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+# Skipped in --fatal-only mode: opens/closes camera (1-3 s), produces info only.
+if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   _COMPRESS_SUPPORT=$(gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "compress" || true)
   if [[ -n "$_COMPRESS_SUPPORT" ]]; then
     ok "pylonsrc Compression Beyond: plugin supports decompression"
@@ -668,7 +670,8 @@ fi
 # (IEEE 1588). Chunk timestamp is optional for streaming but required if you
 # need per-frame timing accuracy (e.g. for AI pipelines or post-sync).
 # Check: (1) plugin exposes ChunkModeActive property, (2) camera accepts it.
-if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+# Skipped in --fatal-only mode: opens/closes camera (1-3 s), produces warn/info only.
+if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   _CHUNK_PROP=$(gst-inspect-1.0 pylonsrc 2>/dev/null \
     | grep -i "ChunkModeActive\|chunk.mode.active" || true)
   if [[ -n "$_CHUNK_PROP" ]]; then
@@ -862,28 +865,30 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
   else
     ok "mediamtx binary: ${MEDIAMTX_BIN}"
 
-    # If already running, just confirm; otherwise start briefly to verify it works.
-    MEDIAMTX_CHECK_PID=""
-    if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
-      ok "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
-    else
-      if [[ "$QUIET" -eq 0 ]]; then echo "  [....] Starting MediaMTX briefly to verify..."; fi
-      "$MEDIAMTX_BIN" >/dev/null 2>&1 &
-      MEDIAMTX_CHECK_PID=$!
-      STARTED=0
-      for i in 1 2 3 4 5; do
-        sleep 1
-        if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
-          STARTED=1; break
-        fi
-      done
-      if [[ "$STARTED" -eq 1 ]]; then
-        ok "MediaMTX starts successfully"
+    # In manual mode: start briefly to verify it actually works.
+    # Skipped in --fatal-only mode: up to 5 s sleep loop, false-fails on loaded systems.
+    if [[ "$FATAL_ONLY" -eq 0 ]]; then
+      if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+        ok "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
       else
-        fail "MediaMTX found but did not start within 5 seconds"
+        echo "  [....] Starting MediaMTX briefly to verify..."
+        "$MEDIAMTX_BIN" >/dev/null 2>&1 &
+        MEDIAMTX_CHECK_PID=$!
+        STARTED=0
+        for i in 1 2 3 4 5; do
+          sleep 1
+          if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+            STARTED=1; break
+          fi
+        done
+        if [[ "$STARTED" -eq 1 ]]; then
+          ok "MediaMTX starts successfully"
+        else
+          warn "MediaMTX found but did not start within 5 seconds -- verify manually"
+        fi
+        kill "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
+        wait "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
       fi
-      kill "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
-      wait "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
     fi
   fi
 
