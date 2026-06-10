@@ -276,6 +276,36 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
   fi
 fi
 
+# ONVIF server check.
+# onvif_simple_server exposes MediaMTX RTSP streams as an ONVIF Profile S/T
+# device so NVRs (e.g. Dahua) can discover and record without manual RTSP URL
+# entry. It is a CGI binary -- requires lighttpd and wsd_simple_server.
+# No prebuilt ARM64 binaries: must build from source.
+# github.com/roleoroleo/onvif_simple_server
+_ONVIF_OK=0
+_ONVIF_BIN=$(command -v onvif_simple_server 2>/dev/null || true)
+_WSD_BIN=$(command -v wsd_simple_server 2>/dev/null || true)
+_LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
+
+if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
+  _ONVIF_OK=1
+  # Verify the binary runs (no version flag; -f prints config help)
+  if onvif_simple_server -f >/dev/null 2>&1; then
+    ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
+  else
+    warn "ONVIF: onvif_simple_server binary found but failed self-test (-f)"
+  fi
+else
+  _MISSING=""
+  [[ -z "$_ONVIF_BIN"    ]] && _MISSING="${_MISSING} onvif_simple_server"
+  [[ -z "$_WSD_BIN"      ]] && _MISSING="${_MISSING} wsd_simple_server"
+  [[ -z "$_LIGHTTPD_BIN" ]] && _MISSING="${_MISSING} lighttpd"
+  warn "ONVIF: not available -- missing:${_MISSING}"
+  warn "     Build from source: github.com/roleoroleo/onvif_simple_server"
+  warn "     lighttpd: sudo apt install lighttpd"
+  warn "     Run ./start_onvif.sh after installing to enable NVR discovery"
+fi
+
 
 # ==============================================================================
 # 2 - SYSTEM TIME SYNCHRONISATION
