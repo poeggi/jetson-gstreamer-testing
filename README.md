@@ -70,6 +70,7 @@ sudo apt install lighttpd
 
 | Property | Value |
 |----------|-------|
+| Sensor | 1/1.1" Sony IMX253, global shutter |
 | Max resolution | 4096 × 3000 (12.3 MP); **pipeline uses 4096 × 2160** (NVENC H.265 limit) |
 | Interface | USB 3.1 Gen1 — both camera and Orin NX are Gen1 only (~450 MB/s ceiling) |
 | Max FPS | 30 fps hardware-fixed at full resolution |
