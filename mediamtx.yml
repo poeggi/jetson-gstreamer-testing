@@ -5,6 +5,10 @@ webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 webrtcIPsFromInterfaces: yes
 
+# Force TCP -- improves compatibility with Dahua NVRs and other clients
+# that silently fail with UDP RTP delivery.
+rtspTransports: [tcp]
+
 # readBufferCount/writeQueueSize left at MediaMTX defaults (512).
 # Values below 512 caused "fetching next packet failed" at 28 Mbps H.264.
 
@@ -12,13 +16,13 @@ paths:
   main:
 
   main-auth:
-    source: rtsp://127.0.0.1:8554/main
     readUser: guest
     readPass: guest
+    source: rtsp://127.0.0.1:8554/main
 
   sub:
 
   sub-auth:
-    source: rtsp://127.0.0.1:8554/sub
     readUser: guest
     readPass: guest
+    source: rtsp://127.0.0.1:8554/sub

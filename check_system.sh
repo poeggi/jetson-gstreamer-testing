@@ -278,7 +278,80 @@ fi
 
 
 # ==============================================================================
-# 2 - USB BUFFER MEMORY AND AUTOSUSPEND
+# 2 - SYSTEM TIME SYNCHRONISATION
+# Accurate wall-clock time is needed for Basler chunk timestamp correlation
+# and any time-based post-processing of recorded streams. Check that an NTP
+# or PTP daemon is active and that the clock offset is within useful bounds.
+# ==============================================================================
+
+section "System time synchronisation"
+
+_TIME_SYNCED=0
+_NTP_METHOD=""
+_NTP_OFFSET_MS=""
+_NTP_OFFSET_BAD=0
+
+# Collect sync state silently -- all methods tried, first success wins.
+
+# Method 1: timedatectl (systemd-timesyncd or chrony via systemd)
+if command -v timedatectl >/dev/null 2>&1; then
+  _TD=$(timedatectl show 2>/dev/null || true)
+  if echo "$_TD" | grep -q "NTPSynchronized=yes"; then
+    _TIME_SYNCED=1
+    _NTP_METHOD="timedatectl"
+    # offset via timesync-status (newer systemd only; silently absent if unavailable)
+    _TS_OFF=$(timedatectl timesync-status 2>/dev/null \
+      | awk '/Offset:/{print $2, $3}' || true)
+    [[ -n "$_TS_OFF" ]] && _NTP_OFFSET_MS="$_TS_OFF"
+  fi
+fi
+
+# Method 2: chronyc tracking (also gives precise offset in seconds)
+if command -v chronyc >/dev/null 2>&1; then
+  _CHRONY=$(chronyc tracking 2>/dev/null || true)
+  if [[ -n "$_CHRONY" ]] && ! echo "$_CHRONY" | grep -q "0\.0\.0\.0\|Not synchronised"; then
+    _TIME_SYNCED=1
+    _NTP_METHOD="chrony"
+    _COFF=$(echo "$_CHRONY" | awk '/System time/{print $4}')
+    if [[ -n "$_COFF" ]]; then
+      _NTP_OFFSET_MS=$(awk "BEGIN {printf \"%.2f ms\", ${_COFF} * 1000}")
+      _NTP_OFFSET_BAD=$(awk "BEGIN {print (${_COFF} < 0 ? -${_COFF} : ${_COFF}) > 0.1}")
+    fi
+  fi
+fi
+
+# Method 3: ntpq (ntpd -- active peer indicated by leading '*')
+if [[ "$_TIME_SYNCED" -eq 0 ]] && command -v ntpq >/dev/null 2>&1; then
+  if ntpq -c peers 2>/dev/null | grep -q "^\*"; then
+    _TIME_SYNCED=1
+    _NTP_METHOD="ntpd"
+  fi
+fi
+
+# Single consolidated output line
+if [[ "$_TIME_SYNCED" -eq 1 ]]; then
+  _NTP_DETAIL="${_NTP_METHOD}"
+  [[ -n "$_NTP_OFFSET_MS" ]] && _NTP_DETAIL="${_NTP_METHOD}, offset ${_NTP_OFFSET_MS}"
+  if [[ "$_NTP_OFFSET_BAD" -eq 1 ]]; then
+    warn "System time: synchronized via ${_NTP_DETAIL} -- offset > 100 ms, chunk timestamps unreliable"
+  else
+    ok "System time: synchronized via ${_NTP_DETAIL}"
+  fi
+else
+  warn "System time: not synchronized -- no active NTP daemon detected"
+  warn "     Accurate time needed for Basler chunk timestamp correlation."
+  warn "     Enable: sudo timedatectl set-ntp true  or  sudo apt install chrony"
+  # autofix: ntpdate for an immediate one-shot correction, then re-enable daemon
+  if command -v ntpdate >/dev/null 2>&1; then
+    autofix "Force time sync via ntpdate" "sudo ntpdate -u pool.ntp.org"
+  elif command -v chronyc >/dev/null 2>&1; then
+    autofix "Force time step via chronyc" "sudo chronyc makestep"
+  fi
+fi
+
+
+# ==============================================================================
+# 3 - USB BUFFER MEMORY AND AUTOSUSPEND
 # usbfs_memory_mb caps the RAM the USB subsystem can pin for DMA buffers.
 # The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
 # At 12 MP YUY2 NV12: 10 x ~18 MB = ~180 MB minimum. 256 MB gives headroom
@@ -349,7 +422,7 @@ fi
 
 
 # ==============================================================================
-# 3 - JETSON POWER AND CLOCK CONFIGURATION
+# 4 - JETSON POWER AND CLOCK CONFIGURATION
 # nvpmodel and jetson_clocks control CPU, GPU and memory clock limits.
 # Running in a low-power mode caps clocks and will cause pipeline stalls.
 # ==============================================================================
@@ -498,7 +571,7 @@ fi
 
 
 # ==============================================================================
-# 4 - THERMAL THROTTLING
+# 5 - THERMAL THROTTLING
 # If the SoC is hot, the kernel reduces clock speeds automatically.
 # This can cause the pipeline to stall and drop frames unpredictably.
 # ==============================================================================
@@ -539,7 +612,7 @@ done
 
 
 # ==============================================================================
-# 5 - KERNEL TRACING AND DEBUG OVERHEAD
+# 6 - KERNEL TRACING AND DEBUG OVERHEAD
 # Active ftrace, high GST_DEBUG levels, and kernel debug features add
 # scheduling latency and can cause dropped frames.
 # ==============================================================================
@@ -577,7 +650,7 @@ fi
 
 
 # ==============================================================================
-# 6 - CAMERA HARDWARE DETECTION
+# 7 - CAMERA HARDWARE DETECTION
 # ==============================================================================
 
 section "Camera hardware"
@@ -678,8 +751,41 @@ if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   fi
 fi
 
+# Basler chunk timestamp check.
+# ChunkModeActive appends hardware metadata (timestamp, frame counter, exposure)
+# to each buffer. On the a2A4096-30ucPRO (Pro) the timestamp is driven by the
+# camera's internal clock, which can be synchronized to network time via PTP
+# (IEEE 1588). Chunk timestamp is optional for streaming but required if you
+# need per-frame timing accuracy (e.g. for AI pipelines or post-sync).
+# Check: (1) plugin exposes ChunkModeActive property, (2) camera accepts it.
+if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+  _CHUNK_PROP=$(gst-inspect-1.0 pylonsrc 2>/dev/null \
+    | grep -i "ChunkModeActive\|chunk.mode.active" || true)
+  if [[ -n "$_CHUNK_PROP" ]]; then
+    ok "pylonsrc: ChunkModeActive property available"
+    # Try enabling chunk mode and capturing one frame. Failure means the camera
+    # rejected the property (firmware/model limitation) or no camera is connected.
+    _CHUNK_OUT=$(gst-launch-1.0 pylonsrc num-buffers=1 ChunkModeActive=true \
+      ! fakesink sync=false 2>&1 || true)
+    if echo "$_CHUNK_OUT" | grep -qi "error"; then
+      warn "Chunk timestamp: ChunkModeActive=true was rejected by camera or plugin"
+      warn "     Camera may not support chunk mode or no camera is connected."
+    else
+      ok "Chunk timestamp: ChunkModeActive=true accepted -- hardware timestamps active"
+      info "     Pro model supports PTP (IEEE 1588) for network-synced timestamps."
+      info "     Enable PTP in pylon Viewer: GevIEEE1588 = true"
+      info "     Verify sync: GevIEEE1588Status should reach 'Slave' or 'Master'."
+    fi
+  else
+    info "Chunk timestamp: pylonsrc does not expose ChunkModeActive property"
+    info "     Upgrade gst-plugin-pylon for chunk timestamp support:"
+    info "     https://github.com/basler/gst-plugin-pylon/releases"
+  fi
+fi
+
+
 # ==============================================================================
-# 7 - MEMORY: AVAILABLE RAM, CMA, AND SWAP
+# 8 - MEMORY: AVAILABLE RAM, CMA, AND SWAP
 # Pipeline buffers, NVMM surfaces, and encoder working memory compete for RAM.
 #
 # CMA (Contiguous Memory Allocator): NVMM allocations on Jetson come from CMA.
@@ -746,7 +852,7 @@ fi
 
 
 # ==============================================================================
-# 8 - NETWORK SOCKET BUFFERS (RTSP mode only)
+# 9 - NETWORK SOCKET BUFFERS (RTSP mode only)
 # rtspclientsink sends the H.265 stream over a TCP socket. At 35-62 Mbps
 # (12 MP streaming to high-quality range), the kernel send buffer must be
 # large enough to absorb one full GOP without blocking the pipeline.
