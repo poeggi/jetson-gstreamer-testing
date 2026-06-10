@@ -540,7 +540,7 @@ elif [[ "$IMOD_VALUE" == "0" || "$IMOD_VALUE" == "0x0" ]]; then
   warn "     At 530 MB/s this significantly increases CPU interrupt overhead."
   warn "     Linux default is 4000 (1ms coalescing). Check device tree or kernel config."
 else
-  ok "XHCI interrupt moderation: IMOD=${IMOD_VALUE} ($(( ${IMOD_VALUE##0x} * 250 / 1000 )) us coalescing interval)"
+  ok "XHCI interrupt moderation: IMOD=${IMOD_VALUE} ($(( ${IMOD_VALUE} * 250 / 1000 )) us coalescing interval)"
 fi
 if [[ -f "$USB_AS_FILE" ]]; then
   USB_AS=$(cat "$USB_AS_FILE")

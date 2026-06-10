@@ -18,6 +18,12 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONF="${SCRIPT_DIR}/stream.conf"
+[[ -f "$CONF" ]] || { echo "ERROR: stream.conf not found at ${CONF}" >&2; exit 1; }
+# shellcheck source=stream.conf
+source "$CONF"
+
 BUFFERS=10          # frames per synthetic test (videotestsrc)
 CAM_BUFFERS=20      # frames per camera test (pylonsrc) -- limited for speed
                     # but same resolution as production
@@ -123,7 +129,6 @@ echo ""
 # ==============================================================================
 # PRE-FLIGHT CHECKS (critical issues that block all tests)
 # ==============================================================================
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if ! "${SCRIPT_DIR}/check_system.sh" --fatal-only; then
   echo "ERROR: Pre-flight checks failed. Run ./check_system.sh for details." >&2
   exit 1
@@ -434,7 +439,7 @@ echo "--- 8. pylonsrc (camera must be connected, ${CAM_BUFFERS} frames per test)
 # Also verify the negotiated framerate matches the requested production framerate.
 echo ""
 echo "  [FORMAT CHECK] Camera pixel format and framerate"
-out=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=YUY2,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1)
+out=$(timeout 15 gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=YUY2,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1) || true
 fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)[^,)]*" | sed 's/format=(string)//')
 negotiated_fps=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "framerate=(fraction)[^,)]*" | sed 's/framerate=(fraction)//')
 if echo "$fmt" | grep -qE "^BGR$|^RGB$|^YUY2$|^UYVY$"; then
@@ -496,8 +501,6 @@ if [[ "$PYLONSRC_NVMM" -eq 1 ]]; then
      ! fakesink sync=false"
 
   # Test the full production chain with rtspclientsink (requires MediaMTX running)
-  RTSP_HOST="127.0.0.1"
-  RTSP_PORT="8554"
   if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
     RTSP_URL="rtsp://${RTSP_HOST}:${RTSP_PORT}/diag"
     run_test "pylonsrc full chain + rtspclientsink (production)" 10 1 \
