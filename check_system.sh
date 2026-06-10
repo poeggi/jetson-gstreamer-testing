@@ -308,6 +308,93 @@ else
   warn "     Run ./start_onvif.sh after installing to enable NVR discovery"
 fi
 
+# ONVIF conf vs stream.conf consistency check.
+# Codec, resolution, and RTSP path in onvif_simple_server.conf must match
+# stream.conf. A mismatch means the NVR gets the wrong decoder hint or tries
+# to connect to a path that does not exist.
+_SCRIPT_DIR_ONVIF="$(cd "$(dirname "$0")" && pwd)"
+_ONVIF_CONF="${_SCRIPT_DIR_ONVIF}/onvif_simple_server.conf"
+_STREAM_CONF="${_SCRIPT_DIR_ONVIF}/stream.conf"
+
+if [[ -f "$_ONVIF_CONF" && -f "$_STREAM_CONF" ]]; then
+  # Read a single key from stream.conf, stripping inline comments and spaces.
+  _sc_val() {
+    local v
+    v=$(grep "^${1}=" "$_STREAM_CONF" 2>/dev/null | head -1 \
+          | cut -d= -f2 | sed 's/[[:space:]]*#.*//' | tr -d ' ' || true)
+    echo "${v:-${2}}"
+  }
+  _SC_MAIN_ENC=$(  _sc_val MAIN_ENCODER   h265  )
+  _SC_MAIN_W=$(    _sc_val MAIN_WIDTH     4096  )
+  _SC_MAIN_H=$(    _sc_val MAIN_HEIGHT    2160  )
+  _SC_MAIN_PATH=$( _sc_val MAIN_RTSP_PATH /main )
+  _SC_SUB_ENC=$(   _sc_val SUB_ENCODER    h264  )
+  _SC_SUB_W=$(     _sc_val SUB_WIDTH      1920  )
+  _SC_SUB_H=$(     _sc_val SUB_HEIGHT     1080  )
+  _SC_SUB_PATH=$(  _sc_val SUB_RTSP_PATH  /sub  )
+  _SC_SUB_EN=$(    _sc_val SUB_ENABLED    false )
+
+  # Parse onvif_simple_server.conf into per-profile associative arrays.
+  # Keys repeat for each profile block; we track the current profile by name=.
+  declare -A _OC_TYPE _OC_W _OC_H _OC_URL
+  _OC_CUR=""
+  while IFS= read -r _ocl; do
+    _ocl="${_ocl%%#*}"                  # strip comments
+    [[ "$_ocl" != *=* ]] && continue
+    _ock="${_ocl%%=*}"; _ock="${_ock//[[:space:]]/}"
+    _ocv="${_ocl#*=}";  _ocv="${_ocv#"${_ocv%%[! ]*}"}"; _ocv="${_ocv%"${_ocv##*[! ]}"}"
+    case "$_ock" in
+      name)   _OC_CUR="$_ocv" ;;
+      type)   [[ -n "$_OC_CUR" ]] && _OC_TYPE["$_OC_CUR"]="${_ocv^^}" ;;
+      width)  [[ -n "$_OC_CUR" ]] && _OC_W["$_OC_CUR"]="$_ocv" ;;
+      height) [[ -n "$_OC_CUR" ]] && _OC_H["$_OC_CUR"]="$_ocv" ;;
+      url)    [[ -n "$_OC_CUR" ]] && _OC_URL["$_OC_CUR"]="$_ocv" ;;
+    esac
+  done < "$_ONVIF_CONF"
+
+  _check_onvif_vs_stream() {
+    local pname="$1" enc="$2" w="$3" h="$4" path="$5"
+    local exp_type="${enc^^}"
+    local got_type="${_OC_TYPE[$pname]:-}"
+    local got_w="${_OC_W[$pname]:-}"
+    local got_h="${_OC_H[$pname]:-}"
+    local got_url="${_OC_URL[$pname]:-}"
+    local got_path
+    got_path=$(echo "$got_url" | sed 's|rtsp://%s:[0-9]*/||; s|/$||')
+    path="${path#/}"
+
+    if [[ -z "$got_type" ]]; then
+      warn "ONVIF/stream.conf: profile '${pname}' not found in onvif_simple_server.conf"
+      return
+    fi
+    if [[ "$exp_type" == "$got_type" ]]; then
+      ok "ONVIF/${pname}: codec match (${got_type})"
+    else
+      fail "ONVIF/${pname}: codec mismatch -- stream.conf=${exp_type}  onvif_conf=${got_type}"
+      fail "     Edit onvif_simple_server.conf: type=${exp_type} for ${pname}"
+    fi
+    if [[ "$w" == "$got_w" && "$h" == "$got_h" ]]; then
+      ok "ONVIF/${pname}: resolution match (${got_w}x${got_h})"
+    else
+      warn "ONVIF/${pname}: resolution mismatch -- stream.conf=${w}x${h}  onvif_conf=${got_w}x${got_h}"
+    fi
+    if [[ "$path" == "$got_path" ]]; then
+      ok "ONVIF/${pname}: RTSP path match (/${got_path})"
+    else
+      fail "ONVIF/${pname}: RTSP path mismatch -- stream.conf=/${path}  onvif_conf=/${got_path}"
+    fi
+  }
+
+  _check_onvif_vs_stream "Profile_Main" \
+    "$_SC_MAIN_ENC" "$_SC_MAIN_W" "$_SC_MAIN_H" "$_SC_MAIN_PATH"
+  if [[ "$_SC_SUB_EN" == "true" ]]; then
+    _check_onvif_vs_stream "Profile_Sub" \
+      "$_SC_SUB_ENC" "$_SC_SUB_W" "$_SC_SUB_H" "$_SC_SUB_PATH"
+  fi
+elif [[ ! -f "$_ONVIF_CONF" ]]; then
+  warn "ONVIF: onvif_simple_server.conf not found -- cannot verify config consistency"
+fi
+
 
 # ==============================================================================
 # 2 - SYSTEM TIME SYNCHRONISATION
