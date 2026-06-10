@@ -971,24 +971,32 @@ fi
 if [[ "$FAILURES" -gt 0 || "$FATAL_ONLY" -eq 0 ]]; then
   echo ""
   echo "======================================================"
-  if [[ "$FAILURES" -gt 0 ]]; then
-    echo "  RESULT: ${FAILURES} failure(s), ${WARNINGS} warning(s)"
-    echo "  Fix failures before running the pipeline."
+  if [[ "$FAILURES" -gt 0 && "$WARNINGS" -gt 0 ]]; then
+    echo "  ${FAILURES} failure(s)  |  ${WARNINGS} warning(s)"
+  elif [[ "$FAILURES" -gt 0 ]]; then
+    echo "  ${FAILURES} failure(s)  |  no warnings"
   elif [[ "$WARNINGS" -gt 0 ]]; then
-    echo "  RESULT: 0 failures, ${WARNINGS} warning(s)"
-    echo "  Warnings do not block launch but may affect performance."
+    echo "  No failures  |  ${WARNINGS} warning(s)"
   else
-    echo "  RESULT: All checks passed."
+    echo "  No failures, no warnings"
+  fi
+  echo ""
+  if [[ "$FAILURES" -eq 0 ]]; then
+    echo "  GOOD TO GO -- pipeline ready to launch."
+    [[ "$WARNINGS" -gt 0 ]] && echo "  Warnings above may affect performance or reliability."
+  else
+    echo "  NOT READY -- fix ${FAILURES} failure(s) before launching."
   fi
   if [[ "$AUTOFIX" -eq 1 ]]; then
-    echo "  AUTOFIX: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
+    echo ""
+    echo "  Autofix: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
     if [[ "$AUTOFIX_PERSIST" -eq 1 ]]; then
       [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."
     else
       [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."
     fi
   elif [[ "$WARNINGS" -gt 0 || "$FAILURES" -gt 0 ]]; then
-    echo "  Tip: --autofix for runtime fixes, --autofix-persist for runtime + persistent fixes."
+    echo "  Tip: --autofix for runtime fixes, --autofix-persist for persistent fixes."
   fi
   echo "======================================================"
   echo ""
