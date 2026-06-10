@@ -9,6 +9,7 @@ Includes a system health check script and a full bandwidth and bitrate reference
 this camera and interface.
 
 Requires mediamtx running (to stream RTSP), sample config included in repo.
+Optional ONVIF server stack (`onvif_simple_server` + `lighttpd`) for NVR auto-discovery.
 
 ---
 
@@ -20,6 +21,7 @@ Edit **`stream.conf`** to set defaults (sourced by `send_stream.sh`):
 - `MAIN_ENCODER` / `SUB_ENCODER` — `h264` or `h265`
 - `MAIN_BITRATE` / `SUB_BITRATE` — in bps
 - `RTSP_HOST` / `RTSP_PORT` — MediaMTX server address
+- `ONVIF_ENABLED` / `ONVIF_PORT` — enable ONVIF server for NVR auto-discovery (default port 8080)
 
 ### Running
 ```bash
@@ -50,6 +52,35 @@ Edit **`stream.conf`** to set defaults (sourced by `send_stream.sh`):
 |--------|------|---------------|
 | MAIN (H.265 4K) | `rtsp://host:8554/main` | `rtsp://guest:guest@host:8554/main-auth` |
 | SUB (H.264 1080p) | `rtsp://host:8554/sub` | `rtsp://guest:guest@host:8554/sub-auth` |
+
+### NVR Connection (ONVIF)
+
+When `ONVIF_ENABLED=true` in `stream.conf`, `send_stream.sh` automatically starts an ONVIF
+server stack so NVRs (e.g. Dahua) can auto-discover and record without manual RTSP URL entry.
+
+| Item | Value |
+|------|-------|
+| ONVIF device URL | `http://JETSON_IP:8080/onvif/device_service` |
+| Auto-discovery | WS-Discovery on UDP 3702 — NVR scans LAN automatically |
+| Profiles advertised | Profile_Main (H.265 4K `/main`), Profile_Sub (H.264 1080p `/sub`) |
+
+The ONVIF stack is independent of MediaMTX — it only tells the NVR the RTSP URLs;
+MediaMTX still serves the actual streams. Codec, resolution, and paths in
+`onvif_simple_server.conf` must match `stream.conf` (`./check_system.sh` verifies this).
+
+**Prerequisites** (no prebuilt ARM64 binaries — must build from source):
+```bash
+# Build onvif_simple_server + wsd_simple_server
+git clone https://github.com/roleoroleo/onvif_simple_server
+# follow build instructions for aarch64
+
+# Install lighttpd
+sudo apt install lighttpd
+```
+
+Configure the network interface in `onvif_simple_server.conf` (`ifs=eth0` by default).
+Run `./start_onvif.sh` to start/stop the stack standalone, or set `ONVIF_ENABLED=true`
+for automatic lifecycle management via `send_stream.sh`.
 
 ---
 

@@ -318,6 +318,11 @@ fi
 if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
 [[ "$MAIN_ENABLED" == "true" ]] && echo "  MAIN URL       : rtsp://${RTSP_HOST}:${RTSP_PORT}${MAIN_RTSP_PATH}"
 [[ "$SUB_ENABLED"  == "true" ]] && echo "  SUB URL        : rtsp://${RTSP_HOST}:${RTSP_PORT}${SUB_RTSP_PATH}"
+if [[ "${ONVIF_ENABLED:-false}" == "true" ]]; then
+echo "  ONVIF          : enabled (port ${ONVIF_PORT}) -- NVR auto-discovery active"
+else
+echo "  ONVIF          : disabled  (set ONVIF_ENABLED=true in stream.conf)"
+fi
 fi
 echo "======================================================"
 echo ""
