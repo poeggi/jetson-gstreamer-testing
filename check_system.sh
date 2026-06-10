@@ -621,9 +621,9 @@ if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   _TEST_FPS="15"
   _CAPS_OUT=$(gst-launch-1.0 -v pylonsrc num-buffers=1 \
     ! "video/x-raw(memory:NVMM),format=YUY2,framerate=${_TEST_FPS}/1" \
-    ! fakesink 2>&1)
+    ! fakesink 2>&1) || true
   _NEG_FPS=$(echo "$_CAPS_OUT" | grep "pylonsrc0.GstPad:src: caps" \
-    | grep -o "framerate=(fraction)[^,)]*" | sed 's/framerate=(fraction)//')
+    | grep -o "framerate=(fraction)[^,)]*" | sed 's/framerate=(fraction)//') || true
   if [[ -z "$_NEG_FPS" ]]; then
     info "pylonsrc framerate control: could not determine (camera may not be connected)"
   elif [[ "$_NEG_FPS" == "${_TEST_FPS}/1" ]]; then
@@ -648,7 +648,7 @@ if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
   if [[ -n "$_COMPRESS_SUPPORT" ]]; then
     ok "pylonsrc Compression Beyond: plugin supports decompression"
     # Check if camera has it enabled by inspecting negotiated caps for compression hint
-    _COMP_OUT=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! fakesink 2>&1)
+    _COMP_OUT=$(gst-launch-1.0 -v pylonsrc num-buffers=1 ! fakesink 2>&1) || true
     if echo "$_COMP_OUT" | grep -qi "compress"; then
       ok "Compression Beyond: active on camera -- USB bandwidth is reduced"
     else
@@ -973,36 +973,34 @@ fi
 # SUMMARY
 # ==============================================================================
 
-if [[ "$FATAL_ONLY" -eq 0 ]]; then
-  echo ""
-  echo "======================================================"
-  if [[ "$FAILURES" -gt 0 && "$WARNINGS" -gt 0 ]]; then
-    echo "  ${FAILURES} failure(s)  |  ${WARNINGS} warning(s)"
-  elif [[ "$FAILURES" -gt 0 ]]; then
-    echo "  ${FAILURES} failure(s)  |  no warnings"
-  elif [[ "$WARNINGS" -gt 0 ]]; then
-    echo "  No failures  |  ${WARNINGS} warning(s)"
-  else
-    echo "  No failures, no warnings"
-  fi
-  echo ""
-  if [[ "$FAILURES" -eq 0 ]]; then
-    echo "  GOOD TO GO -- pipeline ready to launch."
-    if [[ "$WARNINGS" -gt 0 ]]; then echo "  Warnings above may affect performance or reliability."; fi
-  else
-    echo "  NOT READY -- fix ${FAILURES} failure(s) before launching."
-  fi
-  if [[ "$AUTOFIX" -eq 1 ]]; then
-    echo ""
-    echo "  Autofix: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
-    if [[ "$AUTOFIX_PERSIST" -eq 1 ]]; then
-      if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."; fi
-    else
-      if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."; fi
-    fi
-  fi
-  echo "======================================================"
-  echo ""
+echo ""
+echo "======================================================"
+if [[ "$FAILURES" -gt 0 && "$WARNINGS" -gt 0 ]]; then
+  echo "  ${FAILURES} failure(s)  |  ${WARNINGS} warning(s)"
+elif [[ "$FAILURES" -gt 0 ]]; then
+  echo "  ${FAILURES} failure(s)  |  no warnings"
+elif [[ "$WARNINGS" -gt 0 ]]; then
+  echo "  No failures  |  ${WARNINGS} warning(s)"
+else
+  echo "  No failures, no warnings"
 fi
+echo ""
+if [[ "$FAILURES" -eq 0 ]]; then
+  echo "  GOOD TO GO -- pipeline ready to launch."
+  if [[ "$WARNINGS" -gt 0 ]]; then echo "  Warnings above may affect performance or reliability."; fi
+else
+  echo "  NOT READY -- fix ${FAILURES} failure(s) before launching."
+fi
+if [[ "$AUTOFIX" -eq 1 ]]; then
+  echo ""
+  echo "  Autofix: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
+  if [[ "$AUTOFIX_PERSIST" -eq 1 ]]; then
+    if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."; fi
+  else
+    if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."; fi
+  fi
+fi
+echo "======================================================"
+echo ""
 
 [[ "$FAILURES" -eq 0 ]]
