@@ -995,8 +995,6 @@ if [[ "$FAILURES" -gt 0 || "$FATAL_ONLY" -eq 0 ]]; then
     else
       [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."
     fi
-  elif [[ "$WARNINGS" -gt 0 || "$FAILURES" -gt 0 ]]; then
-    echo "  Tip: --autofix for runtime fixes, --autofix-persist for persistent fixes."
   fi
   echo "======================================================"
   echo ""
