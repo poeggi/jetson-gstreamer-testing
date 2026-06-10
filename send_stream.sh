@@ -158,9 +158,6 @@ fi
 
 # ------------------------------------------------------------------------------
 # ONVIF stack -- start if enabled and not already running
-# lighttpd serves onvif_simple_server as CGI; wsd_simple_server handles
-# WS-Discovery so NVRs can find the device automatically on the LAN.
-# Conf is generated at runtime from stream.conf -- no static conf file needed.
 # ------------------------------------------------------------------------------
 if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
   if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
@@ -222,7 +219,7 @@ audio_decoder=NONE
 EOF
       fi
 
-      # Generate lighttpd config -- passes conf path to onvif_simple_server via CONF_FILE env
+      # CONF_FILE env var tells onvif_simple_server which conf to load (set via mod_setenv)
       mkdir -p /tmp/onvif_root/onvif
       cat > "$ONVIF_LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
@@ -237,7 +234,6 @@ EOF
       "$_LIGHTTPD_BIN" -f "$ONVIF_LIGHTTPD_CONF" &
       LIGHTTPD_PID=$!
 
-      # WS-Discovery -- NVR auto-discovery on the LAN
       _ONVIF_IF="${ONVIF_INTERFACE:-eth0}"
       _ONVIF_IP=$(ip -4 addr show "$_ONVIF_IF" 2>/dev/null \
         | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
@@ -253,7 +249,6 @@ EOF
 
       ONVIF_WE_STARTED=1
 
-      # Wait for lighttpd to be ready
       READY=0
       for i in 1 2 3; do
         sleep 1

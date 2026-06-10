@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# start_onvif.sh
-#
-# Standalone start/stop for the ONVIF server stack.
-# Reads settings from stream.conf -- no separate ONVIF conf file needed.
-#
-# Stack:
-#   lighttpd            -- HTTP server, serves onvif_simple_server as CGI
-#   onvif_simple_server -- CGI handler for ONVIF SOAP requests
-#   wsd_simple_server   -- WS-Discovery daemon (UDP 3702, NVR auto-discovery)
-#
-# Prerequisites (no prebuilt ARM64 binaries -- must build from source):
-#   github.com/roleoroleo/onvif_simple_server
-#   sudo apt install lighttpd
-#
+# start_onvif.sh -- standalone start/stop for the ONVIF server stack.
+# Reads settings from stream.conf (same as send_stream.sh).
 # Usage: ./start_onvif.sh [--stop]
 # ==============================================================================
 
