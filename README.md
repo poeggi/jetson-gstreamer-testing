@@ -65,8 +65,8 @@ server stack so NVRs (e.g. Dahua) can auto-discover and record without manual RT
 | Profiles advertised | Profile_Main (H.265 4K `/main`), Profile_Sub (H.264 1080p `/sub`) |
 
 The ONVIF stack is independent of MediaMTX — it only tells the NVR the RTSP URLs;
-MediaMTX still serves the actual streams. Codec, resolution, and paths in
-`onvif_simple_server.conf` must match `stream.conf` (`./check_system.sh` verifies this).
+MediaMTX still serves the actual streams. The ONVIF conf is generated at runtime
+from `stream.conf`, so codec, resolution, and paths are always correct.
 
 **Prerequisites** (no prebuilt ARM64 binaries — must build from source):
 ```bash
