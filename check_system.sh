@@ -23,18 +23,20 @@ set -euo pipefail
 QUIET=0
 FATAL_ONLY=0
 AUTOFIX=0
+AUTOFIX_PERSIST=0
 ENCODER="h265"
 OUTPUT_MODE="rtsp"
 
 for arg in "$@"; do
   case "$arg" in
-    --quiet)          QUIET=1 ;;
-    --fatal-only)     QUIET=1; FATAL_ONLY=1 ;;
-    --autofix)        AUTOFIX=1 ;;
-    h264|h265)        ENCODER="$arg" ;;
-    rtsp|fakesink)    OUTPUT_MODE="$arg" ;;
+    --quiet)            QUIET=1 ;;
+    --fatal-only)       QUIET=1; FATAL_ONLY=1 ;;
+    --autofix)          AUTOFIX=1 ;;
+    --autofix-persist)  AUTOFIX=1; AUTOFIX_PERSIST=1 ;;
+    h264|h265)          ENCODER="$arg" ;;
+    rtsp|fakesink)      OUTPUT_MODE="$arg" ;;
     *)
-      echo "Usage: $0 [--quiet] [--fatal-only] [--autofix] [h264|h265] [rtsp|fakesink]" >&2
+      echo "Usage: $0 [--quiet] [--fatal-only] [--autofix] [--autofix-persist] [h264|h265] [rtsp|fakesink]" >&2
       exit 1
       ;;
   esac
@@ -67,6 +69,21 @@ autofix() {
     FIXES_APPLIED=$(( FIXES_APPLIED + 1 ))
   else
     echo "  [FIX]  FAILED -- may need sudo or manual intervention"
+    FIXES_FAILED=$(( FIXES_FAILED + 1 ))
+  fi
+}
+
+# autofix_persist DESCRIPTION COMMAND
+# Runs COMMAND when --autofix-persist is set. Makes the fix survive reboot.
+autofix_persist() {
+  [[ "$AUTOFIX_PERSIST" -eq 0 ]] && return 0
+  local desc="$1" cmd="$2"
+  printf "  [PERSIST] %s\n" "$desc"
+  if eval "$cmd"; then
+    echo "  [PERSIST] Done."
+    FIXES_APPLIED=$(( FIXES_APPLIED + 1 ))
+  else
+    echo "  [PERSIST] FAILED -- may need sudo or manual intervention"
     FIXES_FAILED=$(( FIXES_FAILED + 1 ))
   fi
 }
@@ -190,13 +207,14 @@ if [[ "$_TIME_SYNCED" -eq 1 ]]; then
 else
   warn "System time: not synchronized -- no active NTP daemon detected"
   warn "     Accurate time needed for Basler chunk timestamp correlation."
-  warn "     Enable: sudo timedatectl set-ntp true  or  sudo apt install chrony"
-  # autofix: ntpdate for an immediate one-shot correction, then re-enable daemon
+  warn "     Fix now  : sudo ntpdate -u pool.ntp.org  (one-shot sync)"
+  warn "     Persist  : sudo timedatectl set-ntp true  (or: sudo apt install chrony)"
   if command -v ntpdate >/dev/null 2>&1; then
     autofix "Force time sync via ntpdate" "sudo ntpdate -u pool.ntp.org"
   elif command -v chronyc >/dev/null 2>&1; then
     autofix "Force time step via chronyc" "sudo chronyc makestep"
   fi
+  autofix_persist "Enable NTP via timedatectl" "sudo timedatectl set-ntp true"
 fi
 
 
@@ -253,8 +271,10 @@ else
   SWAP_USED_MB=$(( (SWAP_KB - SWAP_FREE_KB) / 1024 ))
   warn "Swap: ${SWAP_MB} MB configured, ${SWAP_USED_MB} MB in use"
   warn "     Swap causes latency spikes in NVMM allocation and DMA under pressure."
-  warn "     Disable: sudo swapoff -a  (remove from /etc/fstab for persistence)"
+  warn "     Disable now  : sudo swapoff -a"
+  warn "     Persist      : sudo sed -i '/swap/Id' /etc/fstab"
   autofix "Disable swap" "sudo swapoff -a"
+  autofix_persist "Remove swap entries from /etc/fstab" "sudo sed -i '/swap/Id' /etc/fstab"
 fi
 
 ZRAM_COUNT=$(ls /dev/zram* 2>/dev/null | wc -l || echo 0)
@@ -263,6 +283,7 @@ if [[ "$ZRAM_COUNT" -gt 0 ]]; then
   warn "     Disable now  : sudo swapoff /dev/zram0  (or: sudo systemctl stop zramswap)"
   warn "     Persist      : sudo systemctl disable zramswap"
   autofix "Disable zram swap" "for z in /dev/zram*; do sudo swapoff \"\$z\" 2>/dev/null || true; done"
+  autofix_persist "Disable zramswap service" "sudo systemctl disable zramswap 2>/dev/null || sudo systemctl disable systemd-zram-setup@zram0.service 2>/dev/null || true"
 else
   ok "zram: not active"
 fi
@@ -329,8 +350,10 @@ if [[ -f "$GOV_FILE" ]]; then
   else
     warn "CPU governor: ${GOV} -- clocks may scale down between frames"
     warn "     Slow scale-up on frame arrival can stall the pipeline under load."
-    warn "     Fix: sudo jetson_clocks  (pins all clocks at max; adds ~3-5 W)"
+    warn "     Fix now  : sudo jetson_clocks  (pins all clocks at max; adds ~3-5 W)"
+    warn "     Persist  : add 'jetson_clocks' to /etc/rc.local before 'exit 0'"
     autofix "Pin clocks with jetson_clocks" "sudo jetson_clocks"
+    autofix_persist "Add jetson_clocks to /etc/rc.local" "grep -qF 'jetson_clocks' /etc/rc.local 2>/dev/null || echo 'jetson_clocks' | sudo tee -a /etc/rc.local >/dev/null"
   fi
 else
   warn "Cannot read CPU governor from ${GOV_FILE}"
@@ -348,7 +371,10 @@ if [[ -f "$CUR_FILE" && -f "$MAX_FILE" ]]; then
   if [[ "$PCT" -lt 90 ]]; then
     warn "CPU0 clock: ${CUR_GHZ} GHz (${PCT}% of ${MAX_GHZ} GHz max)"
     warn "     Possible cause: jetson_clocks not running, or thermal throttle"
-    warn "     Fix: sudo jetson_clocks"
+    warn "     Fix now  : sudo jetson_clocks"
+    warn "     Persist  : add 'jetson_clocks' to /etc/rc.local before 'exit 0'"
+    autofix "Pin clocks with jetson_clocks" "sudo jetson_clocks"
+    autofix_persist "Add jetson_clocks to /etc/rc.local" "grep -qF 'jetson_clocks' /etc/rc.local 2>/dev/null || echo 'jetson_clocks' | sudo tee -a /etc/rc.local >/dev/null"
   else
     ok "CPU0 clock: ${CUR_GHZ} GHz (${PCT}% of ${MAX_GHZ} GHz max)"
   fi
@@ -398,8 +424,10 @@ if [[ -d "$CSTATE_DIR" ]]; then
         warn "     ${DEEP_LATENCY} us wake latency = $(( DEEP_LATENCY / 1000 )) ms per event;"
         warn "     at 30fps this is $(( DEEP_LATENCY * 100 / 33000 ))% of the frame budget per wake."
         warn "     Disable only this state; WFI and shallower states stay on to save power."
-        warn "     Fix: ${_DIS}"
+        warn "     Fix now  : ${_DIS}"
+        warn "     Persist  : add the above command to /etc/rc.local before 'exit 0'"
         autofix "Disable deepest C-state ${DEEP_NAME}" "${_DIS}"
+        autofix_persist "Add C-state disable to /etc/rc.local" "grep -qF 'cpuidle/state${DEEP_IDX}/disable' /etc/rc.local 2>/dev/null || echo '${_DIS}' | sudo tee -a /etc/rc.local >/dev/null"
       fi
     elif [[ "$DEEP_LATENCY" -ge 500 ]]; then
       if [[ "$DEEP_DISABLED" -eq 1 ]]; then
@@ -484,6 +512,7 @@ if [[ -f "$USB_MEM_FILE" ]]; then
     warn "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
     warn "     Persist : add the above line to /etc/rc.local before 'exit 0'"
     autofix "Set usbfs_memory_mb to ${USB_MEM_MIN}" "sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
+    autofix_persist "Add usbfs_memory_mb to /etc/rc.local" "grep -qF 'usbfs_memory_mb' /etc/rc.local 2>/dev/null || echo 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}' | sudo tee -a /etc/rc.local >/dev/null"
   else
     ok "usbfs_memory_mb = ${USB_MEM} MB"
   fi
@@ -520,9 +549,10 @@ if [[ -f "$USB_AS_FILE" ]]; then
   else
     warn "USB autosuspend: enabled (delay=${USB_AS} s) -- intermittent latency spikes"
     warn "     Disable now  : sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
-    warn "     Persist      : add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX"
-    warn "                    in /etc/default/grub, then sudo update-grub"
+    warn "     Persist      : echo 'options usbcore autosuspend=-1' | sudo tee /etc/modprobe.d/usbcore.conf"
+    warn "                    (alternative: add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX)"
     autofix "Disable USB autosuspend" "sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
+    autofix_persist "Persist autosuspend disable via modprobe.d" "echo 'options usbcore autosuspend=-1' | sudo tee /etc/modprobe.d/usbcore.conf >/dev/null"
   fi
 else
   warn "Cannot read ${USB_AS_FILE} -- usbcore module may not be loaded"
@@ -785,7 +815,8 @@ if [[ -f "$FTRACE_FILE" ]]; then
   FTRACE=$(cat "$FTRACE_FILE" 2>/dev/null || echo "0")
   if [[ "$FTRACE" == "1" ]]; then
     warn "ftrace is active -- kernel function tracing adds scheduling overhead"
-    warn "     Disable: sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+    warn "     Disable now  : sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+    warn "     Persist      : not needed -- ftrace resets on reboot unless explicitly re-enabled"
     autofix "Disable ftrace" "sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
   else
     ok "ftrace is inactive"
@@ -872,6 +903,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     warn "     Fix now : sudo sysctl -w net.core.rmem_max=${NET_REC}"
     warn "     Persist : echo 'net.core.rmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
     autofix "Set net.core.rmem_max to ${NET_REC}" "sudo sysctl -w net.core.rmem_max=${NET_REC}"
+    autofix_persist "Persist rmem_max in /etc/sysctl.conf" "grep -qF 'rmem_max' /etc/sysctl.conf 2>/dev/null || echo 'net.core.rmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf >/dev/null"
   fi
 
   if [[ "$NET_WMEM" -ge "$NET_MIN" ]]; then
@@ -882,6 +914,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     warn "     Fix now : sudo sysctl -w net.core.wmem_max=${NET_REC}"
     warn "     Persist : echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
     autofix "Set net.core.wmem_max to ${NET_REC}" "sudo sysctl -w net.core.wmem_max=${NET_REC}"
+    autofix_persist "Persist wmem_max in /etc/sysctl.conf" "grep -qF 'wmem_max' /etc/sysctl.conf 2>/dev/null || echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf >/dev/null"
   fi
 fi
 
@@ -949,9 +982,13 @@ if [[ "$FAILURES" -gt 0 || "$FATAL_ONLY" -eq 0 ]]; then
   fi
   if [[ "$AUTOFIX" -eq 1 ]]; then
     echo "  AUTOFIX: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
-    [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime fixes applied. Reboot-required items still need manual steps."
+    if [[ "$AUTOFIX_PERSIST" -eq 1 ]]; then
+      [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."
+    else
+      [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."
+    fi
   elif [[ "$WARNINGS" -gt 0 || "$FAILURES" -gt 0 ]]; then
-    echo "  Tip: run with --autofix to apply runtime fixes automatically."
+    echo "  Tip: --autofix for runtime fixes, --autofix-persist for runtime + persistent fixes."
   fi
   echo "======================================================"
   echo ""
