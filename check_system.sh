@@ -282,6 +282,7 @@ fi
 # entry. It is a CGI binary -- requires lighttpd and wsd_simple_server.
 # No prebuilt ARM64 binaries: must build from source.
 # github.com/roleoroleo/onvif_simple_server
+ONVIF_PORT="${ONVIF_PORT:-8080}"
 _ONVIF_OK=0
 _ONVIF_BIN=$(command -v onvif_simple_server 2>/dev/null || true)
 _WSD_BIN=$(command -v wsd_simple_server 2>/dev/null || true)
@@ -289,11 +290,12 @@ _LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
 
 if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
   _ONVIF_OK=1
-  # Verify the binary runs (no version flag; -f prints config help)
-  if onvif_simple_server -f >/dev/null 2>&1; then
-    ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
+  ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
+  if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
+    ok "ONVIF: running on port ${ONVIF_PORT}"
   else
-    warn "ONVIF: onvif_simple_server binary found but failed self-test (-f)"
+    info "ONVIF: installed but not running (port ${ONVIF_PORT} not listening)"
+    info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./start_onvif.sh"
   fi
 else
   _MISSING=""
