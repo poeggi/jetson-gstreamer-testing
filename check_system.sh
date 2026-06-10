@@ -260,7 +260,8 @@ fi
 ZRAM_COUNT=$(ls /dev/zram* 2>/dev/null | wc -l || echo 0)
 if [[ "$ZRAM_COUNT" -gt 0 ]]; then
   warn "zram: ${ZRAM_COUNT} device(s) active -- compressed swap adds CPU overhead under pressure"
-  warn "     Disable: sudo swapoff /dev/zram0  (or systemctl stop zramswap)"
+  warn "     Disable now  : sudo swapoff /dev/zram0  (or: sudo systemctl stop zramswap)"
+  warn "     Persist      : sudo systemctl disable zramswap"
   autofix "Disable zram swap" "for z in /dev/zram*; do sudo swapoff \"\$z\" 2>/dev/null || true; done"
 else
   ok "zram: not active"
