@@ -289,11 +289,26 @@ _LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
 
 if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
   ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
+  _WSD_PIDS=$(pgrep -x wsd_simple_server 2>/dev/null || true)
   if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
-    ok "ONVIF: running on port ${ONVIF_PORT}"
+    ok "ONVIF: lighttpd running on port ${ONVIF_PORT}"
+    if [[ -n "$_WSD_PIDS" ]]; then
+      ok "ONVIF: wsd_simple_server running (WS-Discovery active)"
+    else
+      warn "ONVIF: wsd_simple_server not running -- NVR auto-discovery inactive"
+      warn "     Restart via send_stream.sh or ./start_onvif.sh"
+    fi
   else
-    info "ONVIF: installed but not running (port ${ONVIF_PORT} not listening)"
-    info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./start_onvif.sh"
+    # lighttpd not running -- check for stray wsd that could block a fresh start
+    if [[ -n "$_WSD_PIDS" ]]; then
+      _WSD_PID_LIST=$(echo "$_WSD_PIDS" | tr '\n' ' ' | sed 's/ $//')
+      warn "ONVIF: stray wsd_simple_server running (PID ${_WSD_PID_LIST}) but lighttpd is not"
+      warn "     This may prevent WS-Discovery from starting cleanly."
+      warn "     Stop it: kill ${_WSD_PID_LIST}"
+    else
+      info "ONVIF: installed but not running (port ${ONVIF_PORT} not listening)"
+      info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./start_onvif.sh"
+    fi
   fi
 else
   _MISSING=""

@@ -22,6 +22,7 @@ Edit **`stream.conf`** to set defaults (sourced by `send_stream.sh`):
 - `MAIN_BITRATE` / `SUB_BITRATE` — in bps
 - `RTSP_HOST` / `RTSP_PORT` — MediaMTX server address
 - `ONVIF_ENABLED` / `ONVIF_PORT` / `ONVIF_INTERFACE` — enable ONVIF server for NVR auto-discovery
+- `ONVIF_USER` / `ONVIF_PASSWORD` — ONVIF auth credentials (default `guest:guest`; leave empty to disable auth)
 
 ### Running
 ```bash

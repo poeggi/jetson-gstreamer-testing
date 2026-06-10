@@ -74,6 +74,12 @@ scope=onvif://www.onvif.org/Profile/S
 scope=onvif://www.onvif.org/Profile/T
 
 adv_enable_media2=1
+EOF
+  if [[ -n "${ONVIF_USER:-}" ]]; then
+    printf "user=%s\npassword=%s\n" "$ONVIF_USER" "${ONVIF_PASSWORD:-}" \
+      >> "$ONVIF_SERVER_CONF"
+  fi
+  cat >> "$ONVIF_SERVER_CONF" <<EOF
 
 name=Profile_Main
 width=${MAIN_WIDTH}
