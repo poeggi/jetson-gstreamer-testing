@@ -52,16 +52,16 @@ WARNINGS=0
 FIXES_APPLIED=0
 FIXES_FAILED=0
 
-section() { [[ "$QUIET" -eq 0 ]] && echo "" && echo "--- $1 ---"; return 0; }
-ok()      { [[ "$QUIET" -eq 0 ]] && echo "  [OK]   $1"; return 0; }
-info()    { [[ "$QUIET" -eq 0 ]] && echo "  [INFO] $1"; return 0; }
-warn()    { [[ "$FATAL_ONLY" -eq 0 ]] && echo "  [WARN] $1"; WARNINGS=$(( WARNINGS + 1 )); }
+section() { if [[ "$QUIET" -eq 0 ]]; then echo ""; echo "--- $1 ---"; fi; }
+ok()      { if [[ "$QUIET" -eq 0 ]]; then echo "  [OK]   $1"; fi; }
+info()    { if [[ "$QUIET" -eq 0 ]]; then echo "  [INFO] $1"; fi; }
+warn()    { if [[ "$FATAL_ONLY" -eq 0 ]]; then echo "  [WARN] $1"; fi; WARNINGS=$(( WARNINGS + 1 )); }
 fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
 
 # autofix DESCRIPTION COMMAND
 # Runs COMMAND when --autofix is set. Skipped silently otherwise.
 autofix() {
-  [[ "$AUTOFIX" -eq 0 ]] && return 0
+  if [[ "$AUTOFIX" -eq 0 ]]; then return 0; fi
   local desc="$1" cmd="$2"
   printf "  [FIX]  %s\n" "$desc"
   if eval "$cmd"; then
@@ -76,7 +76,7 @@ autofix() {
 # autofix_persist DESCRIPTION COMMAND
 # Runs COMMAND when --autofix-persist is set. Makes the fix survive reboot.
 autofix_persist() {
-  [[ "$AUTOFIX_PERSIST" -eq 0 ]] && return 0
+  if [[ "$AUTOFIX_PERSIST" -eq 0 ]]; then return 0; fi
   local desc="$1" cmd="$2"
   printf "  [PERSIST] %s\n" "$desc"
   if eval "$cmd"; then
