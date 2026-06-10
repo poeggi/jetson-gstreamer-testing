@@ -100,7 +100,7 @@ stream.conf defaults match the Recommended column.
 | Resolution | FPS | Streaming floor | Recommended | Quality ceiling |
 |------------|-----|-----------------|-------------|-----------------|
 | 4096 × 2160 | 30 | 25 Mbps | **35 Mbps** | 45 Mbps |
-| 1920 × 1080 | 30 |  5 Mbps |  **6 Mbps** | 12 Mbps |
+| 1920 × 1080 | 30 |  6 Mbps |  **9 Mbps** | 14 Mbps |
 
 ### Rate control and keyframe interval
 
