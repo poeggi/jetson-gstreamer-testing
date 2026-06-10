@@ -21,7 +21,7 @@ Edit **`stream.conf`** to set defaults (sourced by `send_stream.sh`):
 - `MAIN_ENCODER` / `SUB_ENCODER` — `h264` or `h265`
 - `MAIN_BITRATE` / `SUB_BITRATE` — in bps
 - `RTSP_HOST` / `RTSP_PORT` — MediaMTX server address
-- `ONVIF_ENABLED` / `ONVIF_PORT` — enable ONVIF server for NVR auto-discovery (default port 8080)
+- `ONVIF_ENABLED` / `ONVIF_PORT` / `ONVIF_INTERFACE` — enable ONVIF server for NVR auto-discovery
 
 ### Running
 ```bash
@@ -78,9 +78,10 @@ git clone https://github.com/roleoroleo/onvif_simple_server
 sudo apt install lighttpd
 ```
 
-Configure the network interface in `onvif_simple_server.conf` (`ifs=eth0` by default).
-Run `./start_onvif.sh` to start/stop the stack standalone, or set `ONVIF_ENABLED=true`
-for automatic lifecycle management via `send_stream.sh`.
+Set `ONVIF_INTERFACE` in `stream.conf` to the network interface facing the NVR (default `eth0`).
+The ONVIF conf is generated at runtime from `stream.conf` — codec, resolution, and RTSP paths
+are always correct. Run `./start_onvif.sh` standalone or set `ONVIF_ENABLED=true` for
+automatic lifecycle management via `send_stream.sh`.
 
 ---
 

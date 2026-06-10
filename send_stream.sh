@@ -159,6 +159,7 @@ fi
 # ONVIF stack -- start if enabled and not already running
 # lighttpd serves onvif_simple_server as CGI; wsd_simple_server handles
 # WS-Discovery so NVRs can find the device automatically on the LAN.
+# Conf is generated at runtime from stream.conf -- no static conf file needed.
 # ------------------------------------------------------------------------------
 if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
   if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
@@ -173,14 +174,56 @@ if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
       echo "         Missing: onvif_simple_server / wsd_simple_server / lighttpd" >&2
       echo "         Build from: github.com/roleoroleo/onvif_simple_server" >&2
     else
-      # Generate lighttpd config pointing CGI at onvif_simple_server
+      # Generate onvif_simple_server conf from stream.conf values
+      _ONVIF_SERVER_CONF="/tmp/onvif_simple_server_${ONVIF_PORT}.conf"
+      cat > "$_ONVIF_SERVER_CONF" <<EOF
+model=Jetson-Basler-4K
+manufacturer=Custom
+firmware_ver=0.1
+hardware_id=JetsonOrinNX
+serial_num=000000000001
+
+ifs=${ONVIF_INTERFACE:-eth0}
+port=${ONVIF_PORT}
+
+scope=onvif://www.onvif.org/Profile/Streaming
+scope=onvif://www.onvif.org/Profile/S
+scope=onvif://www.onvif.org/Profile/T
+
+adv_enable_media2=1
+
+name=Profile_Main
+width=${MAIN_WIDTH}
+height=${MAIN_HEIGHT}
+url=rtsp://%s:${RTSP_PORT}${MAIN_RTSP_PATH}
+snapurl=
+type=${MAIN_ENCODER^^}
+audio_encoder=NONE
+audio_decoder=NONE
+EOF
+      if [[ "${SUB_ENABLED:-false}" == "true" ]]; then
+        cat >> "$_ONVIF_SERVER_CONF" <<EOF
+
+name=Profile_Sub
+width=${SUB_WIDTH}
+height=${SUB_HEIGHT}
+url=rtsp://%s:${RTSP_PORT}${SUB_RTSP_PATH}
+snapurl=
+type=${SUB_ENCODER^^}
+audio_encoder=NONE
+audio_decoder=NONE
+EOF
+      fi
+
+      # Generate lighttpd config -- passes conf path to onvif_simple_server via CONF_FILE env
       mkdir -p /tmp/onvif_root/onvif
       cat > "$ONVIF_LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
 server.bind          = "0.0.0.0"
 server.document-root = "/tmp/onvif_root"
 server.errorlog      = "/tmp/lighttpd_onvif.log"
-server.modules       = ("mod_cgi")
+server.modules       = ("mod_cgi", "mod_setenv")
+setenv.add-environment = ("CONF_FILE" => "${_ONVIF_SERVER_CONF}")
 cgi.assign           = ( "/onvif/" => "${_ONVIF_BIN}" )
 EOF
       echo "Starting lighttpd (ONVIF CGI, port ${ONVIF_PORT})..."
@@ -188,8 +231,7 @@ EOF
       LIGHTTPD_PID=$!
 
       # WS-Discovery -- NVR auto-discovery on the LAN
-      _ONVIF_IF=$(grep "^ifs=" "${SCRIPT_DIR}/onvif_simple_server.conf" 2>/dev/null \
-        | cut -d= -f2 | tr -d ' ' || echo "eth0")
+      _ONVIF_IF="${ONVIF_INTERFACE:-eth0}"
       _ONVIF_IP=$(ip -4 addr show "$_ONVIF_IF" 2>/dev/null \
         | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
 
