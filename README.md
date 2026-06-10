@@ -73,9 +73,7 @@ sudo apt install lighttpd
 | Max resolution | 4096 × 3000 (12.3 MP); **pipeline uses 4096 × 2160** (NVENC H.265 limit) |
 | Interface | USB 3.1 Gen1 — both camera and Orin NX are Gen1 only (~450 MB/s ceiling) |
 | Max FPS | 30 fps hardware-fixed at full resolution |
-| Shutter | Global shutter |
 | Pixel format | Must be `YCbCr422_8` (YUY2) — set in pylon Viewer, stored in camera |
-| PRO extras | PTP (IEEE 1588) sync, Sequencer, extended I/O |
 
 **Why 4096×2160:** Orin NX NVENC supports H.265 up to Level 5.1 (~8.9 MP/frame). 4096×3000 = 12.3 MP exceeds this. 4096×2160 = 8.8 MP is the maximum encodable resolution.
 
