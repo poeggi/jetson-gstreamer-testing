@@ -867,7 +867,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
       ok "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
     else
-      [[ "$QUIET" -eq 0 ]] && echo "  [....] Starting MediaMTX briefly to verify..."
+      if [[ "$QUIET" -eq 0 ]]; then echo "  [....] Starting MediaMTX briefly to verify..."; fi
       "$MEDIAMTX_BIN" >/dev/null 2>&1 &
       MEDIAMTX_CHECK_PID=$!
       STARTED=0
@@ -983,7 +983,7 @@ if [[ "$FAILURES" -gt 0 || "$FATAL_ONLY" -eq 0 ]]; then
   echo ""
   if [[ "$FAILURES" -eq 0 ]]; then
     echo "  GOOD TO GO -- pipeline ready to launch."
-    [[ "$WARNINGS" -gt 0 ]] && echo "  Warnings above may affect performance or reliability."
+    if [[ "$WARNINGS" -gt 0 ]]; then echo "  Warnings above may affect performance or reliability."; fi
   else
     echo "  NOT READY -- fix ${FAILURES} failure(s) before launching."
   fi
@@ -991,9 +991,9 @@ if [[ "$FAILURES" -gt 0 || "$FATAL_ONLY" -eq 0 ]]; then
     echo ""
     echo "  Autofix: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
     if [[ "$AUTOFIX_PERSIST" -eq 1 ]]; then
-      [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."
+      if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."; fi
     else
-      [[ "$FIXES_APPLIED" -gt 0 ]] && echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."
+      if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."; fi
     fi
   fi
   echo "======================================================"
