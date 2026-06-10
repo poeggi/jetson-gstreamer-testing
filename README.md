@@ -86,22 +86,20 @@ sudo apt install lighttpd
 
 NVENC hardware encoding lacks B-frames and multi-pass, so it needs ~20–30% more bits than software encoders for equivalent quality.
 
+stream.conf defaults match the Recommended column.
+
 ### H.265 Main Profile (MAIN stream)
 
-| Resolution | FPS | Streaming floor | Quality ceiling |
-|------------|-----|-----------------|-----------------|
-| 4096 × 2160 | 30 | 16 Mbps | 28 Mbps |
-| 1920 × 1080 | 30 |  4 Mbps |  8 Mbps |
-
-**Default `MAIN_BITRATE=20000000` (20 Mbps)** - good quality for NVR archival; reduces storage ~30% vs 28 Mbps with minimal visible difference.
+| Resolution | FPS | Streaming floor | Recommended | Quality ceiling |
+|------------|-----|-----------------|-------------|-----------------|
+| 4096 × 2160 | 30 | 16 Mbps | **20 Mbps** | 28 Mbps |
+| 1920 × 1080 | 30 |  4 Mbps |  **6 Mbps** |  8 Mbps |
 
 ### H.264 High Profile (SUB stream)
 
-| Resolution | FPS | Streaming floor | Quality ceiling |
-|------------|-----|-----------------|-----------------|
-| 1920 × 1080 | 30 |  5 Mbps | 12 Mbps |
-
-**Default `SUB_BITRATE=6000000` (6 Mbps)** - solid streaming quality at 1080p/30fps.
+| Resolution | FPS | Streaming floor | Recommended | Quality ceiling |
+|------------|-----|-----------------|-------------|-----------------|
+| 1920 × 1080 | 30 |  5 Mbps |  **6 Mbps** | 12 Mbps |
 
 ### Rate control and keyframe interval
 
