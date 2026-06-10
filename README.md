@@ -17,11 +17,11 @@ Optional ONVIF server stack (`onvif_simple_server` + `lighttpd`) for NVR auto-di
 
 ### Configuration
 Edit **`stream.conf`** to set defaults (sourced by `send_stream.sh`):
-- `MAIN_ENABLED` / `SUB_ENABLED` — enable/disable each stream
-- `MAIN_ENCODER` / `SUB_ENCODER` — `h264` or `h265`
-- `MAIN_BITRATE` / `SUB_BITRATE` — in bps
+- `CAMERA_SERIAL` — Basler serial number; leave empty to auto-detect first connected camera
+- `MAIN_ENABLED` / `MAIN_ENCODER` / `MAIN_BITRATE` — enable and configure the 4K H.265 MAIN stream
+- `SUB_ENABLED` / `SUB_ENCODER` / `SUB_BITRATE` — enable and configure the 1080p H.264 sub-stream
 - `RTSP_HOST` / `RTSP_PORT` — MediaMTX server address
-- `ONVIF_ENABLED` / `ONVIF_PORT` / `ONVIF_INTERFACE` — enable ONVIF server for NVR auto-discovery
+- `ONVIF_ENABLED` / `ONVIF_PORT` / `ONVIF_INTERFACE` — ONVIF server for NVR auto-discovery
 - `ONVIF_USER` / `ONVIF_PASSWORD` — ONVIF auth credentials (default `guest:guest`; leave empty to disable auth)
 
 ### Running

@@ -86,7 +86,7 @@ autofix() {
 set +o pipefail
 
 # Compute pylonsrc caps once here for the version display below.
-# Section 1 runs its own fresh gst-inspect under pipefail.
+# Section 7 runs its own fresh gst-inspect under pipefail.
 _PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
 
 section "Platform and plugin versions"
@@ -124,206 +124,11 @@ else
 fi
 
 
-# ==============================================================================
-# 1 - GSTREAMER DEPENDENCIES
-# ==============================================================================
-
 set -o pipefail  # restore strict pipeline error handling for all real checks
-section "GStreamer dependencies"
-
-check_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    fail "command not found: $1  -- fix: $2"
-  else
-    ok "command: $1"
-  fi
-}
-
-check_plugin() {
-  if ! gst-inspect-1.0 "$1" >/dev/null 2>&1; then
-    fail "GStreamer plugin missing: $1  -- fix: $2"
-  else
-    ok "plugin: $1"
-  fi
-}
-
-check_cmd gst-launch-1.0  "sudo apt install gstreamer1.0-tools"
-check_cmd gst-inspect-1.0 "sudo apt install gstreamer1.0-tools"
-check_cmd nc              "sudo apt install netcat-openbsd"
-
-# Running GStreamer pipeline check.
-# A parallel gst-launch-1.0 process will compete for the camera, NVMM pool,
-# and NVENC hardware. This is treated as a severe warning regardless of mode.
-_GST_PIDS=$(pgrep -x gst-launch-1.0 2>/dev/null || true)
-if [[ -n "$_GST_PIDS" ]]; then
-  _GST_PID_LIST=$(echo "$_GST_PIDS" | tr '\n' ' ' | sed 's/ $//')
-  warn "gst-launch-1.0 already running -- PID(s): ${_GST_PID_LIST}"
-  warn "     A parallel pipeline will compete for the camera, NVMM pool, and NVENC."
-  warn "     Stop it first: kill ${_GST_PID_LIST}"
-else
-  ok "No other gst-launch-1.0 instances running"
-fi
-
-check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
-
-# NVMM support check -- color mode requires pylonsrc to output NVMM directly
-# so frames go USB DMA -> GPU with no system RAM intermediate.
-if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
-  if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
-    ok "pylonsrc NVMM caps: zero-copy color capture path available"
-  else
-    fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
-    fail "     Color capture requires a system RAM -> GPU copy per frame."
-    fail "     Upgrade to an NVMM-capable pylon GStreamer plugin:"
-    fail "     github.com/basler/gst-plugin-pylon/releases"
-  fi
-fi
-
-check_plugin nvvidconv  "re-run JetPack installer"
-check_plugin identity   "sudo apt install gstreamer1.0-plugins-base"
-
-
-case "$ENCODER" in
-  h264)
-    check_plugin nvv4l2h264enc "re-run JetPack installer"
-    check_plugin h264parse     "sudo apt install gstreamer1.0-plugins-bad"
-    ;;
-  h265)
-    check_plugin nvv4l2h265enc "re-run JetPack installer"
-    check_plugin h265parse     "sudo apt install gstreamer1.0-plugins-bad"
-    ;;
-esac
-
-# NVENC hardware functional test -- separate from plugin presence.
-# The plugin may be installed for forward compatibility while NVENC silicon is
-# absent (e.g. current Orin Nano; future variants may add hardware NVENC).
-# Runs a minimal 64x64 test encode; catches missing hardware at pre-flight
-# rather than letting the pipeline fail mid-stream with a cryptic error.
-_NVENC_ELEM=""
-case "$ENCODER" in
-  h264) _NVENC_ELEM="nvv4l2h264enc" ;;
-  h265) _NVENC_ELEM="nvv4l2h265enc" ;;
-esac
-if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
-  # 320x240: well above the H.265 NVENC minimum CTU size on Orin NX.
-  # 64x64 is below the hardware minimum and causes a false failure.
-  _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=320,height=240,framerate=30/1"
-  if gst-launch-1.0 -e videotestsrc num-buffers=10 \
-       ! video/x-raw,format=NV12,width=320,height=240,framerate=30/1 \
-       ! nvvidconv nvbuf-memory-type=4 \
-       ! "${_NVENC_CAPS}" \
-       ! "${_NVENC_ELEM}" ! fakesink sync=false >/dev/null 2>&1; then
-    ok "NVENC hardware: ${_NVENC_ELEM} functional (test encode passed)"
-  else
-    fail "NVENC hardware: ${_NVENC_ELEM} plugin present but test encode failed"
-    fail "     NVENC silicon may be absent on this SoM. This pipeline requires"
-    fail "     hardware H.264/H.265 encoding; software cannot sustain 4K/30fps."
-  fi
-fi
-
-if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
-  case "$ENCODER" in
-    h264) check_plugin rtph264pay "sudo apt install gstreamer1.0-plugins-good" ;;
-    h265) check_plugin rtph265pay "sudo apt install gstreamer1.0-plugins-good" ;;
-  esac
-  check_plugin rtspclientsink "sudo apt install gstreamer1.0-plugins-bad"
-
-  # Find the MediaMTX binary. The pipeline script will start it automatically
-  # if not already running, so we verify it is findable and actually starts.
-  RTSP_HOST="${RTSP_HOST:-127.0.0.1}"
-  RTSP_PORT="${RTSP_PORT:-8554}"
-  SCRIPT_DIR_CHECK="$(cd "$(dirname "$0")" && pwd)"
-
-  MEDIAMTX_BIN=""
-  for loc in \
-    "$(command -v mediamtx 2>/dev/null || true)" \
-    /usr/local/bin/mediamtx \
-    "${HOME}/mediamtx" \
-    "${SCRIPT_DIR_CHECK}/mediamtx"; do
-    [[ -n "$loc" && -x "$loc" ]] && { MEDIAMTX_BIN="$loc"; break; }
-  done
-
-  if [[ -z "$MEDIAMTX_BIN" ]]; then
-    fail "mediamtx binary not found in PATH or common locations"
-    fail "     Download for ARM64 from: github.com/bluenviron/mediamtx/releases"
-    fail "     Place in /usr/local/bin/ or alongside these scripts"
-  else
-    ok "mediamtx binary: ${MEDIAMTX_BIN}"
-
-    # If already running, just confirm; otherwise start briefly to verify it works.
-    MEDIAMTX_CHECK_PID=""
-    if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
-      ok "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
-    else
-      [[ "$QUIET" -eq 0 ]] && echo "  [....] Starting MediaMTX briefly to verify..."
-      "$MEDIAMTX_BIN" >/dev/null 2>&1 &
-      MEDIAMTX_CHECK_PID=$!
-      STARTED=0
-      for i in 1 2 3 4 5; do
-        sleep 1
-        if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
-          STARTED=1; break
-        fi
-      done
-      if [[ "$STARTED" -eq 1 ]]; then
-        ok "MediaMTX starts successfully"
-      else
-        fail "MediaMTX found but did not start within 5 seconds"
-      fi
-      kill "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
-      wait "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
-    fi
-  fi
-fi
-
-# ONVIF server check.
-# onvif_simple_server exposes MediaMTX RTSP streams as an ONVIF Profile S/T
-# device so NVRs (e.g. Dahua) can discover and record without manual RTSP URL
-# entry. It is a CGI binary -- requires lighttpd and wsd_simple_server.
-# No prebuilt ARM64 binaries: must build from source.
-# github.com/roleoroleo/onvif_simple_server
-ONVIF_PORT="${ONVIF_PORT:-8080}"
-_ONVIF_BIN=$(command -v onvif_simple_server 2>/dev/null || true)
-_WSD_BIN=$(command -v wsd_simple_server 2>/dev/null || true)
-_LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
-
-if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
-  ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
-  _WSD_PIDS=$(pgrep -x wsd_simple_server 2>/dev/null || true)
-  if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
-    ok "ONVIF: lighttpd running on port ${ONVIF_PORT}"
-    if [[ -n "$_WSD_PIDS" ]]; then
-      ok "ONVIF: wsd_simple_server running (WS-Discovery active)"
-    else
-      warn "ONVIF: wsd_simple_server not running -- NVR auto-discovery inactive"
-      warn "     Restart via send_stream.sh or ./start_onvif.sh"
-    fi
-  else
-    # lighttpd not running -- check for stray wsd that could block a fresh start
-    if [[ -n "$_WSD_PIDS" ]]; then
-      _WSD_PID_LIST=$(echo "$_WSD_PIDS" | tr '\n' ' ' | sed 's/ $//')
-      warn "ONVIF: stray wsd_simple_server running (PID ${_WSD_PID_LIST}) but lighttpd is not"
-      warn "     This may prevent WS-Discovery from starting cleanly."
-      warn "     Stop it: kill ${_WSD_PID_LIST}"
-    else
-      info "ONVIF: installed but not running (port ${ONVIF_PORT} not listening)"
-      info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./start_onvif.sh"
-    fi
-  fi
-else
-  _MISSING=""
-  [[ -z "$_ONVIF_BIN"    ]] && _MISSING="${_MISSING} onvif_simple_server"
-  [[ -z "$_WSD_BIN"      ]] && _MISSING="${_MISSING} wsd_simple_server"
-  [[ -z "$_LIGHTTPD_BIN" ]] && _MISSING="${_MISSING} lighttpd"
-  warn "ONVIF: not available -- missing:${_MISSING}"
-  warn "     Build from source: github.com/roleoroleo/onvif_simple_server"
-  warn "     lighttpd: sudo apt install lighttpd"
-  warn "     Run ./start_onvif.sh after installing to enable NVR discovery"
-fi
 
 
 # ==============================================================================
-# 2 - SYSTEM TIME SYNCHRONISATION
+# 1 - SYSTEM TIME SYNCHRONISATION
 # Accurate wall-clock time is needed for Basler chunk timestamp correlation
 # and any time-based post-processing of recorded streams. Check that an NTP
 # or PTP daemon is active and that the clock offset is within useful bounds.
@@ -396,78 +201,74 @@ fi
 
 
 # ==============================================================================
-# 3 - USB BUFFER MEMORY AND AUTOSUSPEND
-# usbfs_memory_mb caps the RAM the USB subsystem can pin for DMA buffers.
-# The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
-# At 12 MP YUY2 NV12: 10 x ~18 MB = ~180 MB minimum. 256 MB gives headroom
-# for a single camera. Scale to 512 MB if running two cameras on one host.
-# The kernel default of 16 MB causes immediate frame drops at this resolution.
+# 2 - MEMORY: AVAILABLE RAM, CMA, AND SWAP
+# Pipeline buffers, NVMM surfaces, and encoder working memory compete for RAM.
 #
-# USB autosuspend suspends USB devices after an idle period. A streaming camera
-# is never truly idle between frames, but some host controllers still trigger
-# suspend during driver init or brief timing gaps, causing intermittent latency
-# spikes. Must be disabled globally for continuous camera streaming.
+# CMA (Contiguous Memory Allocator): NVMM allocations on Jetson come from CMA.
+# Insufficient CMA causes random NVMM allocation failures after extended runtime
+# as the pool fragments. At 12 MP NV12: ~18 MB per frame; with encoder in-flight
+# buffers the pipeline needs ~200 MB of CMA headroom. 256 MB is the minimum.
+#
+# Swap: even if never actively used, the kernel can trigger page reclaim and
+# compaction accounting under memory pressure, introducing latency spikes in
+# NVMM allocation and DMA operations. Streaming workloads should run swap-free.
 # ==============================================================================
 
-section "USB buffer memory and autosuspend"
+section "Memory: available RAM, CMA, and swap"
 
-USB_MEM_FILE="/sys/module/usbcore/parameters/usbfs_memory_mb"
-USB_MEM_MIN=256
-
-if [[ -f "$USB_MEM_FILE" ]]; then
-  USB_MEM=$(cat "$USB_MEM_FILE")
-  if [[ "$USB_MEM" -lt "$USB_MEM_MIN" ]]; then
-    warn "usbfs_memory_mb = ${USB_MEM} MB -- too low (need >= ${USB_MEM_MIN} MB for single 12 MP camera)"
-    warn "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
-    warn "     Persist : add the above line to /etc/rc.local before 'exit 0'"
-    autofix "Set usbfs_memory_mb to ${USB_MEM_MIN}" "sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
+AVAIL_MB=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print int($2/1024)}' || echo 0)
+if [[ "$AVAIL_MB" -gt 0 ]]; then
+  if [[ "$AVAIL_MB" -lt 1500 ]]; then
+    warn "Low available RAM: ${AVAIL_MB} MB -- pipeline buffers may cause swapping"
+  elif [[ "$AVAIL_MB" -lt 3000 ]]; then
+    warn "Available RAM: ${AVAIL_MB} MB -- acceptable but monitor for pressure"
   else
-    ok "usbfs_memory_mb = ${USB_MEM} MB"
+    ok "Available RAM: ${AVAIL_MB} MB"
   fi
-else
-  warn "Cannot read ${USB_MEM_FILE} -- usbcore module may not be loaded"
 fi
 
-USB_AS_FILE="/sys/module/usbcore/parameters/autosuspend"
-
-# XHCI interrupt moderation (IMOD) -- groups USB transfer completions to reduce
-# interrupt rate. Linux default is 4000 (1ms). 0 = disabled (every transfer fires
-# an interrupt). Reading via debugfs; low priority warning if disabled.
-IMOD_VALUE=""
-for IMOD_FILE in /sys/kernel/debug/usb/xhci*/interrupter_0/IMOD \
-                  /sys/kernel/debug/usb/xhci*/IMOD; do
-  if [[ -f "$IMOD_FILE" ]]; then
-    IMOD_VALUE=$(cat "$IMOD_FILE" 2>/dev/null || true)
-    break
-  fi
-done
-if [[ -z "$IMOD_VALUE" ]]; then
-  info "XHCI IMOD: cannot read (debugfs not mounted or path differs on this kernel)"
-elif [[ "$IMOD_VALUE" == "0" || "$IMOD_VALUE" == "0x0" ]]; then
-  warn "XHCI interrupt moderation (IMOD) is DISABLED -- every USB transfer fires an interrupt"
-  warn "     At 530 MB/s this significantly increases CPU interrupt overhead."
-  warn "     Linux default is 4000 (1ms coalescing). Check device tree or kernel config."
-else
-  ok "XHCI interrupt moderation: IMOD=${IMOD_VALUE} ($(( ${IMOD_VALUE##0x} * 250 / 1000 )) us coalescing interval)"
-fi
-if [[ -f "$USB_AS_FILE" ]]; then
-  USB_AS=$(cat "$USB_AS_FILE")
-  if [[ "$USB_AS" -lt 0 ]]; then
-    ok "USB autosuspend: disabled (autosuspend=${USB_AS})"
+CMA_KB=$(grep "^CmaTotal:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+if [[ "$CMA_KB" -gt 0 ]]; then
+  CMA_MB=$(( CMA_KB / 1024 ))
+  if [[ "$CMA_MB" -lt 128 ]]; then
+    fail "CmaTotal: ${CMA_MB} MB -- too small for 12 MP NVMM pipeline (minimum 256 MB)"
+    fail "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub"
+    fail "     or to the device tree bootargs, then reboot."
+  elif [[ "$CMA_MB" -lt 256 ]]; then
+    warn "CmaTotal: ${CMA_MB} MB -- below recommended 256 MB; NVMM alloc may fail under load"
+    warn "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub, then reboot."
   else
-    warn "USB autosuspend: enabled (delay=${USB_AS} s) -- intermittent latency spikes"
-    warn "     Disable now  : sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
-    warn "     Persist      : add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX"
-    warn "                    in /etc/default/grub, then sudo update-grub"
-    autofix "Disable USB autosuspend" "sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
+    ok "CmaTotal: ${CMA_MB} MB"
   fi
 else
-  warn "Cannot read ${USB_AS_FILE} -- usbcore module may not be loaded"
+  warn "Cannot read CmaTotal from /proc/meminfo -- kernel may lack CMA support"
+fi
+
+SWAP_KB=$(grep "^SwapTotal:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+if [[ "$SWAP_KB" -eq 0 ]]; then
+  ok "Swap: not configured"
+else
+  SWAP_MB=$(( SWAP_KB / 1024 ))
+  SWAP_FREE_KB=$(grep "^SwapFree:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+  SWAP_USED_MB=$(( (SWAP_KB - SWAP_FREE_KB) / 1024 ))
+  warn "Swap: ${SWAP_MB} MB configured, ${SWAP_USED_MB} MB in use"
+  warn "     Swap causes latency spikes in NVMM allocation and DMA under pressure."
+  warn "     Disable: sudo swapoff -a  (remove from /etc/fstab for persistence)"
+  autofix "Disable swap" "sudo swapoff -a"
+fi
+
+ZRAM_COUNT=$(ls /dev/zram* 2>/dev/null | wc -l || echo 0)
+if [[ "$ZRAM_COUNT" -gt 0 ]]; then
+  warn "zram: ${ZRAM_COUNT} device(s) active -- compressed swap adds CPU overhead under pressure"
+  warn "     Disable: sudo swapoff /dev/zram0  (or systemctl stop zramswap)"
+  autofix "Disable zram swap" "for z in /dev/zram*; do sudo swapoff \"\$z\" 2>/dev/null || true; done"
+else
+  ok "zram: not active"
 fi
 
 
 # ==============================================================================
-# 4 - JETSON POWER AND CLOCK CONFIGURATION
+# 3 - JETSON POWER AND CLOCK CONFIGURATION
 # nvpmodel and jetson_clocks control CPU, GPU and memory clock limits.
 # Running in a low-power mode caps clocks and will cause pipeline stalls.
 # ==============================================================================
@@ -616,7 +417,7 @@ fi
 
 
 # ==============================================================================
-# 5 - THERMAL THROTTLING
+# 4 - THERMAL THROTTLING
 # If the SoC is hot, the kernel reduces clock speeds automatically.
 # This can cause the pipeline to stall and drop frames unpredictably.
 # ==============================================================================
@@ -657,45 +458,78 @@ done
 
 
 # ==============================================================================
-# 6 - KERNEL TRACING AND DEBUG OVERHEAD
-# Active ftrace, high GST_DEBUG levels, and kernel debug features add
-# scheduling latency and can cause dropped frames.
+# 5 - USB BUFFER MEMORY AND AUTOSUSPEND
+# usbfs_memory_mb caps the RAM the USB subsystem can pin for DMA buffers.
+# The pylon SDK pre-allocates a ring of capture buffers (default: 10 buffers).
+# At 12 MP YUY2 NV12: 10 x ~18 MB = ~180 MB minimum. 256 MB gives headroom
+# for a single camera. Scale to 512 MB if running two cameras on one host.
+# The kernel default of 16 MB causes immediate frame drops at this resolution.
+#
+# USB autosuspend suspends USB devices after an idle period. A streaming camera
+# is never truly idle between frames, but some host controllers still trigger
+# suspend during driver init or brief timing gaps, causing intermittent latency
+# spikes. Must be disabled globally for continuous camera streaming.
 # ==============================================================================
 
-section "Debug and tracing overhead"
+section "USB buffer memory and autosuspend"
 
-# GST_DEBUG: if set it causes per-buffer logging overhead in every element
-if [[ -n "${GST_DEBUG:-}" ]]; then
-  warn "GST_DEBUG is set: '${GST_DEBUG}'"
-  warn "     Per-element logging adds CPU overhead -- unset for production"
-  warn "     Unset: unset GST_DEBUG"
-else
-  ok "GST_DEBUG is not set"
-fi
+USB_MEM_FILE="/sys/module/usbcore/parameters/usbfs_memory_mb"
+USB_MEM_MIN=256
 
-# ftrace: active kernel function tracing adds measurable scheduling latency
-FTRACE_FILE="/sys/kernel/debug/tracing/tracing_on"
-if [[ -f "$FTRACE_FILE" ]]; then
-  FTRACE=$(cat "$FTRACE_FILE" 2>/dev/null || echo "0")
-  if [[ "$FTRACE" == "1" ]]; then
-    warn "ftrace is active -- kernel function tracing adds scheduling overhead"
-    warn "     Disable: sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
-    autofix "Disable ftrace" "sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+if [[ -f "$USB_MEM_FILE" ]]; then
+  USB_MEM=$(cat "$USB_MEM_FILE")
+  if [[ "$USB_MEM" -lt "$USB_MEM_MIN" ]]; then
+    warn "usbfs_memory_mb = ${USB_MEM} MB -- too low (need >= ${USB_MEM_MIN} MB for single 12 MP camera)"
+    warn "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
+    warn "     Persist : add the above line to /etc/rc.local before 'exit 0'"
+    autofix "Set usbfs_memory_mb to ${USB_MEM_MIN}" "sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
   else
-    ok "ftrace is inactive"
+    ok "usbfs_memory_mb = ${USB_MEM} MB"
   fi
+else
+  warn "Cannot read ${USB_MEM_FILE} -- usbcore module may not be loaded"
 fi
 
-# perf: check if perf_event_paranoid is restrictive (informational only)
-PERF_FILE="/proc/sys/kernel/perf_event_paranoid"
-if [[ -f "$PERF_FILE" ]]; then
-  PERF_VAL=$(cat "$PERF_FILE")
-  info "perf_event_paranoid = ${PERF_VAL}"
+USB_AS_FILE="/sys/module/usbcore/parameters/autosuspend"
+
+# XHCI interrupt moderation (IMOD) -- groups USB transfer completions to reduce
+# interrupt rate. Linux default is 4000 (1ms). 0 = disabled (every transfer fires
+# an interrupt). Reading via debugfs; low priority warning if disabled.
+IMOD_VALUE=""
+for IMOD_FILE in /sys/kernel/debug/usb/xhci*/interrupter_0/IMOD \
+                  /sys/kernel/debug/usb/xhci*/IMOD; do
+  if [[ -f "$IMOD_FILE" ]]; then
+    IMOD_VALUE=$(cat "$IMOD_FILE" 2>/dev/null || true)
+    break
+  fi
+done
+if [[ -z "$IMOD_VALUE" ]]; then
+  info "XHCI IMOD: cannot read (debugfs not mounted or path differs on this kernel)"
+elif [[ "$IMOD_VALUE" == "0" || "$IMOD_VALUE" == "0x0" ]]; then
+  warn "XHCI interrupt moderation (IMOD) is DISABLED -- every USB transfer fires an interrupt"
+  warn "     At 530 MB/s this significantly increases CPU interrupt overhead."
+  warn "     Linux default is 4000 (1ms coalescing). Check device tree or kernel config."
+else
+  ok "XHCI interrupt moderation: IMOD=${IMOD_VALUE} ($(( ${IMOD_VALUE##0x} * 250 / 1000 )) us coalescing interval)"
+fi
+if [[ -f "$USB_AS_FILE" ]]; then
+  USB_AS=$(cat "$USB_AS_FILE")
+  if [[ "$USB_AS" -lt 0 ]]; then
+    ok "USB autosuspend: disabled (autosuspend=${USB_AS})"
+  else
+    warn "USB autosuspend: enabled (delay=${USB_AS} s) -- intermittent latency spikes"
+    warn "     Disable now  : sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
+    warn "     Persist      : add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX"
+    warn "                    in /etc/default/grub, then sudo update-grub"
+    autofix "Disable USB autosuspend" "sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
+  fi
+else
+  warn "Cannot read ${USB_AS_FILE} -- usbcore module may not be loaded"
 fi
 
 
 # ==============================================================================
-# 7 - CAMERA HARDWARE DETECTION
+# 6 - CAMERA HARDWARE DETECTION
 # ==============================================================================
 
 section "Camera hardware"
@@ -830,85 +664,200 @@ fi
 
 
 # ==============================================================================
-# 8 - MEMORY: AVAILABLE RAM, CMA, AND SWAP
-# Pipeline buffers, NVMM surfaces, and encoder working memory compete for RAM.
-#
-# CMA (Contiguous Memory Allocator): NVMM allocations on Jetson come from CMA.
-# Insufficient CMA causes random NVMM allocation failures after extended runtime
-# as the pool fragments. At 12 MP NV12: ~18 MB per frame; with encoder in-flight
-# buffers the pipeline needs ~200 MB of CMA headroom. 256 MB is the minimum.
-#
-# Swap: even if never actively used, the kernel can trigger page reclaim and
-# compaction accounting under memory pressure, introducing latency spikes in
-# NVMM allocation and DMA operations. Streaming workloads should run swap-free.
+# 7 - GSTREAMER PIPELINE STACK
+# GStreamer tools, plugins, and NVENC hardware required to run the pipeline.
+# Also checks for debug and tracing overhead that can degrade performance.
 # ==============================================================================
 
-section "Memory: available RAM, CMA, and swap"
+section "GStreamer pipeline stack"
 
-AVAIL_MB=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print int($2/1024)}' || echo 0)
-if [[ "$AVAIL_MB" -gt 0 ]]; then
-  if [[ "$AVAIL_MB" -lt 1500 ]]; then
-    warn "Low available RAM: ${AVAIL_MB} MB -- pipeline buffers may cause swapping"
-  elif [[ "$AVAIL_MB" -lt 3000 ]]; then
-    warn "Available RAM: ${AVAIL_MB} MB -- acceptable but monitor for pressure"
+check_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    fail "command not found: $1  -- fix: $2"
   else
-    ok "Available RAM: ${AVAIL_MB} MB"
+    ok "command: $1"
+  fi
+}
+
+check_plugin() {
+  if ! gst-inspect-1.0 "$1" >/dev/null 2>&1; then
+    fail "GStreamer plugin missing: $1  -- fix: $2"
+  else
+    ok "plugin: $1"
+  fi
+}
+
+check_cmd gst-launch-1.0  "sudo apt install gstreamer1.0-tools"
+check_cmd gst-inspect-1.0 "sudo apt install gstreamer1.0-tools"
+check_cmd nc              "sudo apt install netcat-openbsd"
+
+# Running GStreamer pipeline check.
+# A parallel gst-launch-1.0 process will compete for the camera, NVMM pool,
+# and NVENC hardware. This is treated as a severe warning regardless of mode.
+_GST_PIDS=$(pgrep -x gst-launch-1.0 2>/dev/null || true)
+if [[ -n "$_GST_PIDS" ]]; then
+  _GST_PID_LIST=$(echo "$_GST_PIDS" | tr '\n' ' ' | sed 's/ $//')
+  warn "gst-launch-1.0 already running -- PID(s): ${_GST_PID_LIST}"
+  warn "     A parallel pipeline will compete for the camera, NVMM pool, and NVENC."
+  warn "     Stop it first: kill ${_GST_PID_LIST}"
+else
+  ok "No other gst-launch-1.0 instances running"
+fi
+
+check_plugin pylonsrc  "install Basler pylon GStreamer package from baslerweb.com/downloads"
+
+# NVMM support check -- color mode requires pylonsrc to output NVMM directly
+# so frames go USB DMA -> GPU with no system RAM intermediate.
+if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+  if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
+    ok "pylonsrc NVMM caps: zero-copy color capture path available"
+  else
+    fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
+    fail "     Color capture requires a system RAM -> GPU copy per frame."
+    fail "     Upgrade to an NVMM-capable pylon GStreamer plugin:"
+    fail "     github.com/basler/gst-plugin-pylon/releases"
   fi
 fi
 
-CMA_KB=$(grep "^CmaTotal:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
-if [[ "$CMA_KB" -gt 0 ]]; then
-  CMA_MB=$(( CMA_KB / 1024 ))
-  if [[ "$CMA_MB" -lt 128 ]]; then
-    fail "CmaTotal: ${CMA_MB} MB -- too small for 12 MP NVMM pipeline (minimum 256 MB)"
-    fail "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub"
-    fail "     or to the device tree bootargs, then reboot."
-  elif [[ "$CMA_MB" -lt 256 ]]; then
-    warn "CmaTotal: ${CMA_MB} MB -- below recommended 256 MB; NVMM alloc may fail under load"
-    warn "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub, then reboot."
+check_plugin nvvidconv  "re-run JetPack installer"
+check_plugin identity   "sudo apt install gstreamer1.0-plugins-base"
+
+
+case "$ENCODER" in
+  h264)
+    check_plugin nvv4l2h264enc "re-run JetPack installer"
+    check_plugin h264parse     "sudo apt install gstreamer1.0-plugins-bad"
+    ;;
+  h265)
+    check_plugin nvv4l2h265enc "re-run JetPack installer"
+    check_plugin h265parse     "sudo apt install gstreamer1.0-plugins-bad"
+    ;;
+esac
+
+# NVENC hardware functional test -- separate from plugin presence.
+# The plugin may be installed for forward compatibility while NVENC silicon is
+# absent (e.g. current Orin Nano; future variants may add hardware NVENC).
+# Runs a minimal 64x64 test encode; catches missing hardware at pre-flight
+# rather than letting the pipeline fail mid-stream with a cryptic error.
+_NVENC_ELEM=""
+case "$ENCODER" in
+  h264) _NVENC_ELEM="nvv4l2h264enc" ;;
+  h265) _NVENC_ELEM="nvv4l2h265enc" ;;
+esac
+if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
+  # 320x240: well above the H.265 NVENC minimum CTU size on Orin NX.
+  # 64x64 is below the hardware minimum and causes a false failure.
+  _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=320,height=240,framerate=30/1"
+  if gst-launch-1.0 -e videotestsrc num-buffers=10 \
+       ! video/x-raw,format=NV12,width=320,height=240,framerate=30/1 \
+       ! nvvidconv nvbuf-memory-type=4 \
+       ! "${_NVENC_CAPS}" \
+       ! "${_NVENC_ELEM}" ! fakesink sync=false >/dev/null 2>&1; then
+    ok "NVENC hardware: ${_NVENC_ELEM} functional (test encode passed)"
   else
-    ok "CmaTotal: ${CMA_MB} MB"
+    fail "NVENC hardware: ${_NVENC_ELEM} plugin present but test encode failed"
+    fail "     NVENC silicon may be absent on this SoM. This pipeline requires"
+    fail "     hardware H.264/H.265 encoding; software cannot sustain 4K/30fps."
   fi
-else
-  warn "Cannot read CmaTotal from /proc/meminfo -- kernel may lack CMA support"
 fi
-
-SWAP_KB=$(grep "^SwapTotal:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
-if [[ "$SWAP_KB" -eq 0 ]]; then
-  ok "Swap: not configured"
-else
-  SWAP_MB=$(( SWAP_KB / 1024 ))
-  SWAP_FREE_KB=$(grep "^SwapFree:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
-  SWAP_USED_MB=$(( (SWAP_KB - SWAP_FREE_KB) / 1024 ))
-  warn "Swap: ${SWAP_MB} MB configured, ${SWAP_USED_MB} MB in use"
-  warn "     Swap causes latency spikes in NVMM allocation and DMA under pressure."
-  warn "     Disable: sudo swapoff -a  (remove from /etc/fstab for persistence)"
-  autofix "Disable swap" "sudo swapoff -a"
-fi
-
-ZRAM_COUNT=$(ls /dev/zram* 2>/dev/null | wc -l || echo 0)
-if [[ "$ZRAM_COUNT" -gt 0 ]]; then
-  warn "zram: ${ZRAM_COUNT} device(s) active -- compressed swap adds CPU overhead under pressure"
-  warn "     Disable: sudo swapoff /dev/zram0  (or systemctl stop zramswap)"
-  autofix "Disable zram swap" "for z in /dev/zram*; do sudo swapoff \"\$z\" 2>/dev/null || true; done"
-else
-  ok "zram: not active"
-fi
-
-
-# ==============================================================================
-# 9 - NETWORK SOCKET BUFFERS (RTSP mode only)
-# rtspclientsink sends the H.265 stream over a TCP socket. At 35-62 Mbps
-# (12 MP streaming to high-quality range), the kernel send buffer must be
-# large enough to absorb one full GOP without blocking the pipeline.
-# At 25 fps with IFRAME_INTERVAL=25 (1 GOP/s): peak burst is ~4-8 MB.
-# Linux defaults (wmem_max ~208 KB) are far too small and cause rtspclientsink
-# to block, stalling the encoder queue and eventually dropping frames upstream.
-# ==============================================================================
 
 if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
-  section "Network socket buffers"
+  case "$ENCODER" in
+    h264) check_plugin rtph264pay "sudo apt install gstreamer1.0-plugins-good" ;;
+    h265) check_plugin rtph265pay "sudo apt install gstreamer1.0-plugins-good" ;;
+  esac
+  check_plugin rtspclientsink "sudo apt install gstreamer1.0-plugins-bad"
+fi
 
+# GST_DEBUG: if set it causes per-buffer logging overhead in every element
+if [[ -n "${GST_DEBUG:-}" ]]; then
+  warn "GST_DEBUG is set: '${GST_DEBUG}'"
+  warn "     Per-element logging adds CPU overhead -- unset for production"
+  warn "     Unset: unset GST_DEBUG"
+else
+  ok "GST_DEBUG is not set"
+fi
+
+# ftrace: active kernel function tracing adds measurable scheduling latency
+FTRACE_FILE="/sys/kernel/debug/tracing/tracing_on"
+if [[ -f "$FTRACE_FILE" ]]; then
+  FTRACE=$(cat "$FTRACE_FILE" 2>/dev/null || echo "0")
+  if [[ "$FTRACE" == "1" ]]; then
+    warn "ftrace is active -- kernel function tracing adds scheduling overhead"
+    warn "     Disable: sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+    autofix "Disable ftrace" "sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+  else
+    ok "ftrace is inactive"
+  fi
+fi
+
+# perf: check if perf_event_paranoid is restrictive (informational only)
+PERF_FILE="/proc/sys/kernel/perf_event_paranoid"
+if [[ -f "$PERF_FILE" ]]; then
+  PERF_VAL=$(cat "$PERF_FILE")
+  info "perf_event_paranoid = ${PERF_VAL}"
+fi
+
+
+# ==============================================================================
+# 8 - RTSP AND ONVIF INFRASTRUCTURE
+# MediaMTX RTSP server and network socket buffers (rtsp mode only).
+# ONVIF device server for NVR auto-discovery (always checked).
+# ==============================================================================
+
+section "RTSP and ONVIF infrastructure"
+
+if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
+  # Find the MediaMTX binary. The pipeline script will start it automatically
+  # if not already running, so we verify it is findable and actually starts.
+  RTSP_HOST="${RTSP_HOST:-127.0.0.1}"
+  RTSP_PORT="${RTSP_PORT:-8554}"
+  SCRIPT_DIR_CHECK="$(cd "$(dirname "$0")" && pwd)"
+
+  MEDIAMTX_BIN=""
+  for loc in \
+    "$(command -v mediamtx 2>/dev/null || true)" \
+    /usr/local/bin/mediamtx \
+    "${HOME}/mediamtx" \
+    "${SCRIPT_DIR_CHECK}/mediamtx"; do
+    [[ -n "$loc" && -x "$loc" ]] && { MEDIAMTX_BIN="$loc"; break; }
+  done
+
+  if [[ -z "$MEDIAMTX_BIN" ]]; then
+    fail "mediamtx binary not found in PATH or common locations"
+    fail "     Download for ARM64 from: github.com/bluenviron/mediamtx/releases"
+    fail "     Place in /usr/local/bin/ or alongside these scripts"
+  else
+    ok "mediamtx binary: ${MEDIAMTX_BIN}"
+
+    # If already running, just confirm; otherwise start briefly to verify it works.
+    MEDIAMTX_CHECK_PID=""
+    if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+      ok "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
+    else
+      [[ "$QUIET" -eq 0 ]] && echo "  [....] Starting MediaMTX briefly to verify..."
+      "$MEDIAMTX_BIN" >/dev/null 2>&1 &
+      MEDIAMTX_CHECK_PID=$!
+      STARTED=0
+      for i in 1 2 3 4 5; do
+        sleep 1
+        if nc -z -w1 "$RTSP_HOST" "$RTSP_PORT" 2>/dev/null; then
+          STARTED=1; break
+        fi
+      done
+      if [[ "$STARTED" -eq 1 ]]; then
+        ok "MediaMTX starts successfully"
+      else
+        fail "MediaMTX found but did not start within 5 seconds"
+      fi
+      kill "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
+      wait "$MEDIAMTX_CHECK_PID" 2>/dev/null || true
+    fi
+  fi
+
+  # rtspclientsink sends the H.265 stream over a TCP socket. At 35-62 Mbps
+  # the kernel send buffer must be large enough to absorb one full GOP without
+  # blocking the pipeline. Linux defaults (~208 KB) are far too small.
   NET_MIN=2097152   # 2 MB minimum; 4 MB recommended for sustained 60 Mbps
   NET_REC=4194304   # 4 MB
 
@@ -933,6 +882,51 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     warn "     Persist : echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
     autofix "Set net.core.wmem_max to ${NET_REC}" "sudo sysctl -w net.core.wmem_max=${NET_REC}"
   fi
+fi
+
+# ONVIF server check.
+# onvif_simple_server exposes MediaMTX RTSP streams as an ONVIF Profile S/T
+# device so NVRs (e.g. Dahua) can discover and record without manual RTSP URL
+# entry. It is a CGI binary -- requires lighttpd and wsd_simple_server.
+# No prebuilt ARM64 binaries: must build from source.
+# github.com/roleoroleo/onvif_simple_server
+ONVIF_PORT="${ONVIF_PORT:-8080}"
+_ONVIF_BIN=$(command -v onvif_simple_server 2>/dev/null || true)
+_WSD_BIN=$(command -v wsd_simple_server 2>/dev/null || true)
+_LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
+
+if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
+  ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
+  _WSD_PIDS=$(pgrep -x wsd_simple_server 2>/dev/null || true)
+  if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
+    ok "ONVIF: lighttpd running on port ${ONVIF_PORT}"
+    if [[ -n "$_WSD_PIDS" ]]; then
+      ok "ONVIF: wsd_simple_server running (WS-Discovery active)"
+    else
+      warn "ONVIF: wsd_simple_server not running -- NVR auto-discovery inactive"
+      warn "     Restart via send_stream.sh or ./start_onvif.sh"
+    fi
+  else
+    # lighttpd not running -- check for stray wsd that could block a fresh start
+    if [[ -n "$_WSD_PIDS" ]]; then
+      _WSD_PID_LIST=$(echo "$_WSD_PIDS" | tr '\n' ' ' | sed 's/ $//')
+      warn "ONVIF: stray wsd_simple_server running (PID ${_WSD_PID_LIST}) but lighttpd is not"
+      warn "     This may prevent WS-Discovery from starting cleanly."
+      warn "     Stop it: kill ${_WSD_PID_LIST}"
+    else
+      info "ONVIF: installed but not running (port ${ONVIF_PORT} not listening)"
+      info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./start_onvif.sh"
+    fi
+  fi
+else
+  _MISSING=""
+  [[ -z "$_ONVIF_BIN"    ]] && _MISSING="${_MISSING} onvif_simple_server"
+  [[ -z "$_WSD_BIN"      ]] && _MISSING="${_MISSING} wsd_simple_server"
+  [[ -z "$_LIGHTTPD_BIN" ]] && _MISSING="${_MISSING} lighttpd"
+  warn "ONVIF: not available -- missing:${_MISSING}"
+  warn "     Build from source: github.com/roleoroleo/onvif_simple_server"
+  warn "     lighttpd: sudo apt install lighttpd"
+  warn "     Run ./start_onvif.sh after installing to enable NVR discovery"
 fi
 
 
