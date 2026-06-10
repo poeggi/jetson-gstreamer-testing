@@ -105,17 +105,18 @@ ONVIF_WE_STARTED=0
 ONVIF_LIGHTTPD_CONF="/tmp/lighttpd_onvif_$$.conf"
 
 cleanup() {
+  # Stop ONVIF first -- NVRs stop discovering before RTSP goes away
+  if [[ "$ONVIF_WE_STARTED" -eq 1 ]]; then
+    echo "Stopping ONVIF stack..."
+    [[ -n "$WSD_PID"      ]] && { kill "$WSD_PID"      2>/dev/null || true; wait "$WSD_PID"      2>/dev/null || true; }
+    [[ -n "$LIGHTTPD_PID" ]] && { kill "$LIGHTTPD_PID" 2>/dev/null || true; wait "$LIGHTTPD_PID" 2>/dev/null || true; }
+    rm -f "$ONVIF_LIGHTTPD_CONF"
+  fi
   if [[ "$MEDIAMTX_WE_STARTED" -eq 1 && -n "$MEDIAMTX_PID" ]]; then
     echo ""
     echo "Stopping MediaMTX (PID ${MEDIAMTX_PID})..."
     kill "$MEDIAMTX_PID" 2>/dev/null || true
     wait "$MEDIAMTX_PID" 2>/dev/null || true
-  fi
-  if [[ "$ONVIF_WE_STARTED" -eq 1 ]]; then
-    echo "Stopping ONVIF stack..."
-    [[ -n "$LIGHTTPD_PID" ]] && { kill "$LIGHTTPD_PID" 2>/dev/null || true; wait "$LIGHTTPD_PID" 2>/dev/null || true; }
-    [[ -n "$WSD_PID"      ]] && { kill "$WSD_PID"      2>/dev/null || true; wait "$WSD_PID"      2>/dev/null || true; }
-    rm -f "$ONVIF_LIGHTTPD_CONF"
   fi
 }
 trap cleanup EXIT
