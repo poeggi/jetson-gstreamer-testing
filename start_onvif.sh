@@ -33,15 +33,15 @@ check_deps() {
 
 # ------------------------------------------------------------------------------
 do_stop() {
-  if [[ -f "$LIGHTTPD_PID_FILE" ]]; then
-    kill "$(cat "$LIGHTTPD_PID_FILE")" 2>/dev/null || true
-    rm -f "$LIGHTTPD_PID_FILE"
-    echo "lighttpd stopped"
-  fi
   if [[ -f "$WSD_PID_FILE" ]]; then
     kill "$(cat "$WSD_PID_FILE")" 2>/dev/null || true
     rm -f "$WSD_PID_FILE"
     echo "wsd_simple_server stopped"
+  fi
+  if [[ -f "$LIGHTTPD_PID_FILE" ]]; then
+    kill "$(cat "$LIGHTTPD_PID_FILE")" 2>/dev/null || true
+    rm -f "$LIGHTTPD_PID_FILE"
+    echo "lighttpd stopped"
   fi
 }
 

@@ -231,7 +231,7 @@ setenv.add-environment = ("CONF_FILE" => "${_ONVIF_SERVER_CONF}")
 cgi.assign           = ( "/onvif/" => "${_ONVIF_BIN}" )
 EOF
       echo "Starting lighttpd (ONVIF CGI, port ${ONVIF_PORT})..."
-      "$_LIGHTTPD_BIN" -f "$ONVIF_LIGHTTPD_CONF" &
+      "$_LIGHTTPD_BIN" -D -f "$ONVIF_LIGHTTPD_CONF" &
       LIGHTTPD_PID=$!
 
       _ONVIF_IF="${ONVIF_INTERFACE:-eth0}"

@@ -118,7 +118,7 @@ Both camera and Orin NX are USB 3.1 Gen1 only. Nominal YUY2 bandwidth at 4096×2
 | Goal | Resolution | FPS | Nominal BW | Notes |
 |------|------------|-----|------------|-------|
 | **4K DCI (default)** | 4096 × 2160 | 30 | ~530 MB/s | Confirmed working (Compression Beyond likely active) |
-| 4K UHD | 3840 × 2160 | 30 | ~498 MB/s | Within Gen1 ceiling |
+| 4K UHD | 3840 × 2160 | 30 | ~498 MB/s | Exceeds Gen1 ceiling (~450 MB/s) - requires Compression Beyond |
 
 This camera is hardware-fixed at 30 fps maximum - higher fps is not achievable at any resolution.
 

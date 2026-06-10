@@ -6,7 +6,7 @@ webrtcLocalUDPAddress: :8189
 webrtcIPsFromInterfaces: yes
 
 # readBufferCount/writeQueueSize left at MediaMTX defaults (512).
-# Values below 512 caused "fetching next packet failed" at 28 Mbps H.264.
+# Values below 512 caused "fetching next packet failed" under sustained high bitrate.
 
 paths:
   main:
