@@ -508,9 +508,9 @@ USB_MEM_MIN=256
 if [[ -f "$USB_MEM_FILE" ]]; then
   USB_MEM=$(cat "$USB_MEM_FILE")
   if [[ "$USB_MEM" -lt "$USB_MEM_MIN" ]]; then
-    warn "usbfs_memory_mb = ${USB_MEM} MB -- too low (need >= ${USB_MEM_MIN} MB for single 12 MP camera)"
-    warn "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
-    warn "     Persist : add the above line to /etc/rc.local before 'exit 0'"
+    fail "usbfs_memory_mb = ${USB_MEM} MB -- too low (need >= ${USB_MEM_MIN} MB for single 12 MP camera)"
+    fail "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
+    fail "     Persist : add the above line to /etc/rc.local before 'exit 0'"
     autofix "Set usbfs_memory_mb to ${USB_MEM_MIN}" "sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
     autofix_persist "Add usbfs_memory_mb to /etc/rc.local" "grep -qF 'usbfs_memory_mb' /etc/rc.local 2>/dev/null || echo 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}' | sudo tee -a /etc/rc.local >/dev/null"
   else
