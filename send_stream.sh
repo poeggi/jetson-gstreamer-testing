@@ -99,6 +99,10 @@ fi
 # ------------------------------------------------------------------------------
 MEDIAMTX_PID=""
 MEDIAMTX_WE_STARTED=0
+LIGHTTPD_PID=""
+WSD_PID=""
+ONVIF_WE_STARTED=0
+ONVIF_LIGHTTPD_CONF="/tmp/lighttpd_onvif_$$.conf"
 
 cleanup() {
   if [[ "$MEDIAMTX_WE_STARTED" -eq 1 && -n "$MEDIAMTX_PID" ]]; then
@@ -106,6 +110,12 @@ cleanup() {
     echo "Stopping MediaMTX (PID ${MEDIAMTX_PID})..."
     kill "$MEDIAMTX_PID" 2>/dev/null || true
     wait "$MEDIAMTX_PID" 2>/dev/null || true
+  fi
+  if [[ "$ONVIF_WE_STARTED" -eq 1 ]]; then
+    echo "Stopping ONVIF stack..."
+    [[ -n "$LIGHTTPD_PID" ]] && { kill "$LIGHTTPD_PID" 2>/dev/null || true; wait "$LIGHTTPD_PID" 2>/dev/null || true; }
+    [[ -n "$WSD_PID"      ]] && { kill "$WSD_PID"      2>/dev/null || true; wait "$WSD_PID"      2>/dev/null || true; }
+    rm -f "$ONVIF_LIGHTTPD_CONF"
   fi
 }
 trap cleanup EXIT
@@ -141,6 +151,71 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     done
     [[ "$READY" -eq 0 ]] && { echo "ERROR: MediaMTX failed to start." >&2; exit 1; }
     echo "MediaMTX started (PID ${MEDIAMTX_PID})"
+  fi
+fi
+
+
+# ------------------------------------------------------------------------------
+# ONVIF stack -- start if enabled and not already running
+# lighttpd serves onvif_simple_server as CGI; wsd_simple_server handles
+# WS-Discovery so NVRs can find the device automatically on the LAN.
+# ------------------------------------------------------------------------------
+if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
+  if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
+    echo "ONVIF already running on port ${ONVIF_PORT}"
+  else
+    _ONVIF_BIN=$(command -v onvif_simple_server 2>/dev/null || true)
+    _WSD_BIN=$(command -v wsd_simple_server 2>/dev/null || true)
+    _LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
+
+    if [[ -z "$_ONVIF_BIN" || -z "$_WSD_BIN" || -z "$_LIGHTTPD_BIN" ]]; then
+      echo "WARNING: ONVIF_ENABLED=true but stack not fully installed -- skipping" >&2
+      echo "         Missing: onvif_simple_server / wsd_simple_server / lighttpd" >&2
+      echo "         Build from: github.com/roleoroleo/onvif_simple_server" >&2
+    else
+      # Generate lighttpd config pointing CGI at onvif_simple_server
+      mkdir -p /tmp/onvif_root/onvif
+      cat > "$ONVIF_LIGHTTPD_CONF" <<EOF
+server.port          = ${ONVIF_PORT}
+server.bind          = "0.0.0.0"
+server.document-root = "/tmp/onvif_root"
+server.errorlog      = "/tmp/lighttpd_onvif.log"
+server.modules       = ("mod_cgi")
+cgi.assign           = ( "/onvif/" => "${_ONVIF_BIN}" )
+EOF
+      echo "Starting lighttpd (ONVIF CGI, port ${ONVIF_PORT})..."
+      "$_LIGHTTPD_BIN" -f "$ONVIF_LIGHTTPD_CONF" &
+      LIGHTTPD_PID=$!
+
+      # WS-Discovery -- NVR auto-discovery on the LAN
+      _ONVIF_IF=$(grep "^ifs=" "${SCRIPT_DIR}/onvif_simple_server.conf" 2>/dev/null \
+        | cut -d= -f2 | tr -d ' ' || echo "eth0")
+      _ONVIF_IP=$(ip -4 addr show "$_ONVIF_IF" 2>/dev/null \
+        | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
+
+      if [[ -n "$_ONVIF_IP" ]]; then
+        "$_WSD_BIN" -i "$_ONVIF_IF" \
+          -x "http://${_ONVIF_IP}:${ONVIF_PORT}/onvif/device_service" \
+          >/dev/null 2>&1 &
+        WSD_PID=$!
+      else
+        echo "WARNING: Cannot determine IP for interface ${_ONVIF_IF} -- WS-Discovery skipped" >&2
+      fi
+
+      ONVIF_WE_STARTED=1
+
+      # Wait for lighttpd to be ready
+      READY=0
+      for i in 1 2 3; do
+        sleep 1
+        nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null && { READY=1; break; }
+      done
+      if [[ "$READY" -eq 1 ]]; then
+        echo "ONVIF started -- http://${_ONVIF_IP:-127.0.0.1}:${ONVIF_PORT}/onvif/device_service"
+      else
+        echo "WARNING: ONVIF lighttpd did not start within 3 seconds -- continuing without ONVIF" >&2
+      fi
+    fi
   fi
 fi
 
