@@ -13,7 +13,7 @@
 #   --main / --no-main    enable/disable MAIN stream (overrides stream.conf)
 #   --main-h264           override MAIN encoder to H.264
 #   --main-h265           override MAIN encoder to H.265
-#   --enable-sub / --disable-sub   enable/disable SUB stream (overrides stream.conf)
+#   --sub / --no-sub      enable/disable SUB stream (overrides stream.conf)
 #   --sub-h264            override SUB encoder to H.264
 #   --sub-h265            override SUB encoder to H.265
 #
@@ -68,13 +68,13 @@ for arg in "$@"; do
     --no-main)    MAIN_ENABLED="false" ;;
     --main-h264)  MAIN_ENCODER="h264" ;;
     --main-h265)  MAIN_ENCODER="h265" ;;
-    --enable-sub)   SUB_ENABLED="true" ;;
-    --disable-sub)  SUB_ENABLED="false" ;;
+    --sub)          SUB_ENABLED="true" ;;
+    --no-sub)       SUB_ENABLED="false" ;;
     --sub-h264)   SUB_ENCODER="h264" ;;
     --sub-h265)   SUB_ENCODER="h265" ;;
     *)
       echo "ERROR: Unknown argument: $arg"
-      echo "Usage: $0 [--fakesink] [--main|--no-main] [--main-h264|--main-h265] [--enable-sub|--disable-sub] [--sub-h264|--sub-h265]"
+      echo "Usage: $0 [--fakesink] [--main|--no-main] [--main-h264|--main-h265] [--sub|--no-sub] [--sub-h264|--sub-h265]"
       exit 1
       ;;
   esac
