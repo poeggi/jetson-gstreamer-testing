@@ -25,6 +25,14 @@ _find_bin() {
   fi
 }
 
+# Source stream.conf so ONVIF_ENABLED, ONVIF_PORT, RTSP_PORT, etc. are available.
+# Args below can still override ENCODER and OUTPUT_MODE.
+_CONF="${SCRIPT_DIR}/stream.conf"
+if [[ -f "$_CONF" ]]; then
+  # shellcheck source=stream.conf
+  source "$_CONF"
+fi
+
 
 # ==============================================================================
 # ARGUMENTS
@@ -34,8 +42,8 @@ QUIET=0
 FATAL_ONLY=0
 AUTOFIX=0
 AUTOFIX_PERSIST=0
-ENCODER="h265"
-OUTPUT_MODE="rtsp"
+ENCODER="${MAIN_ENCODER:-h265}"   # default from stream.conf; overridable by arg
+OUTPUT_MODE="${OUTPUT_MODE:-rtsp}" # default from stream.conf; overridable by arg
 
 for arg in "$@"; do
   case "$arg" in
