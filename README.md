@@ -18,9 +18,8 @@ Two things to verify for your setup:
 
 ### Running
 ```bash
-./send_stream.sh                  # MAIN only (default)
-./send_stream.sh --enable-sub     # both streams (MAIN H.265 4K, SUB H.264 1080p)
-./send_stream.sh --disable-sub    # MAIN only (explicit)
+./send_stream.sh                  # both streams (default, SUB_ENABLED=true)
+./send_stream.sh --no-sub         # MAIN only
 ./send_stream.sh --no-main        # SUB only
 ./send_stream.sh --main-h264      # override MAIN encoder
 ./send_stream.sh --sub-h265       # override SUB encoder
@@ -29,8 +28,8 @@ Two things to verify for your setup:
 
 ### Viewing (Windows)
 ```powershell
-.\view_stream.ps1                 # MAIN stream (H.265 4K)
-.\view_stream.ps1 sub             # SUB stream (H.264 1080p)
+.\windows-helpers\view_stream.ps1                 # MAIN stream (H.265 4K)
+.\windows-helpers\view_stream.ps1 sub             # SUB stream (H.264 1080p)
 ```
 
 ### Viewing (Linux / Jetson)
@@ -58,11 +57,11 @@ Add the Jetson as an IP camera in your NVR - it will appear automatically via WS
 
 Can be configured or disabled in `stream.conf` (`ONVIF_ENABLED`, `ONVIF_PORT`, `ONVIF_USER`/`ONVIF_PASSWORD`).
 
-**Prerequisites** (no prebuilt ARM64 binaries - build from source):
+**Prerequisites:** ARM64 binaries are included in `bin/` (cross-compiled for Jetson Orin NX). Only lighttpd needs installing:
 ```bash
-git clone https://github.com/roleoroleo/onvif_simple_server  # follow aarch64 build instructions
 sudo apt install lighttpd
 ```
+To rebuild the binaries from source (Windows): `.\build-onvif\build.ps1`
 
 ---
 
