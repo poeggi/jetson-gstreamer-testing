@@ -942,6 +942,24 @@ _LIGHTTPD_BIN=$(_find_bin lighttpd)
 
 if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
   ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
+
+  # Verify bundled (cross-compiled) binaries can actually execute on this CPU.
+  # Exit 126 = exec format error (wrong arch / bad ELF). Anything else means
+  # the binary ran (even if it exited non-zero due to missing CGI environment).
+  for _chk in onvif_simple_server wsd_simple_server; do
+    _chk_path=$(_find_bin "$_chk")
+    if [[ "$_chk_path" == "${SCRIPT_DIR}/bin/"* ]]; then
+      _chk_ec=0
+      timeout 1 "$_chk_path" >/dev/null 2>&1 || _chk_ec=$?
+      if [[ $_chk_ec -eq 126 ]]; then
+        fail "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
+        fail "     Re-run ./build-onvif/build.ps1 targeting this machine's architecture"
+      else
+        ok "ONVIF: bin/${_chk} runs on this CPU"
+      fi
+    fi
+  done
+
   _WSD_PIDS=$(pgrep -x wsd_simple_server 2>/dev/null || true)
   if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
     ok "ONVIF: lighttpd running on port ${ONVIF_PORT}"
@@ -949,7 +967,7 @@ if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
       ok "ONVIF: wsd_simple_server running (WS-Discovery active)"
     else
       warn "ONVIF: wsd_simple_server not running -- NVR auto-discovery inactive"
-      warn "     Restart via send_stream.sh or ./start_onvif.sh"
+      warn "     Restart via send_stream.sh or ./bin/start_onvif.sh"
     fi
   else
     # lighttpd not running -- check for stray wsd that could block a fresh start
@@ -960,7 +978,7 @@ if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
       warn "     Stop it: kill ${_WSD_PID_LIST}"
     else
       info "ONVIF: installed but not running (port ${ONVIF_PORT} not listening)"
-      info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./start_onvif.sh"
+      info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./bin/start_onvif.sh"
     fi
   fi
 else
@@ -969,9 +987,9 @@ else
   [[ -z "$_WSD_BIN"      ]] && _MISSING="${_MISSING} wsd_simple_server"
   [[ -z "$_LIGHTTPD_BIN" ]] && _MISSING="${_MISSING} lighttpd"
   warn "ONVIF: not available -- missing:${_MISSING}"
-  warn "     onvif_simple_server / wsd_simple_server: run ./build-onvif.ps1 (Windows)"
+  warn "     onvif_simple_server / wsd_simple_server: run ./build-onvif/build.ps1 (Windows)"
   warn "     lighttpd: sudo apt install lighttpd"
-  warn "     Run ./start_onvif.sh after installing to enable NVR discovery"
+  warn "     Run ./bin/start_onvif.sh after installing to enable NVR discovery"
 fi
 
 

@@ -177,7 +177,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
 
     if [[ -z "$_ONVIF_BIN" || -z "$_WSD_BIN" || -z "$_LIGHTTPD_BIN" ]]; then
       echo "WARNING: ONVIF_ENABLED=true but stack not fully installed -- skipping" >&2
-      echo "         onvif_simple_server / wsd_simple_server: run ./build-onvif.ps1 (Windows)" >&2
+      echo "         onvif_simple_server / wsd_simple_server: run ./build-onvif/build.ps1 (Windows)" >&2
       echo "         lighttpd: sudo apt install lighttpd" >&2
     else
       # Generate onvif_simple_server conf from stream.conf values

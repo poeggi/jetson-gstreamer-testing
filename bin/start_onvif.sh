@@ -8,7 +8,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONF="${SCRIPT_DIR}/stream.conf"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CONF="${REPO_DIR}/stream.conf"
 [[ -f "$CONF" ]] || { echo "ERROR: stream.conf not found at ${CONF}" >&2; exit 1; }
 # shellcheck source=stream.conf
 source "$CONF"
@@ -21,10 +22,10 @@ LIGHTTPD_PID_FILE="/tmp/lighttpd_onvif_standalone.pid"
 WSD_PID_FILE="/tmp/wsd_simple_server.pid"
 ONVIF_SERVER_CONF="/tmp/onvif_simple_server_${ONVIF_PORT}.conf"
 
-# Prefer bundled bin/ binary over system PATH (onvif_simple_server, wsd_simple_server)
+# Prefer bundled bin/ binary over system PATH
 _find_bin() {
   local name="$1"
-  if [[ -x "${SCRIPT_DIR}/bin/${name}" ]]; then echo "${SCRIPT_DIR}/bin/${name}"
+  if [[ -x "${SCRIPT_DIR}/${name}" ]]; then echo "${SCRIPT_DIR}/${name}"
   else command -v "$name" 2>/dev/null || true
   fi
 }
@@ -35,7 +36,7 @@ die() { echo "ERROR: $1" >&2; exit 1; }
 check_deps() {
   for bin in onvif_simple_server wsd_simple_server lighttpd; do
     _find_bin "$bin" | grep -q . || \
-      die "$bin not found. Run ./build-onvif.ps1 or see github.com/roleoroleo/onvif_simple_server"
+      die "$bin not found. Run ./build-onvif/build.ps1 (Windows) or see github.com/roleoroleo/onvif_simple_server"
   done
 }
 
@@ -135,7 +136,7 @@ do_start() {
     -p "$WSD_PID_FILE" \
     >/dev/null 2>&1 &
 
-  lighttpd -f "$LIGHTTPD_CONF"
+  "$(_find_bin lighttpd)" -f "$LIGHTTPD_CONF"
 
   echo "======================================================"
   echo "  ONVIF server running"
