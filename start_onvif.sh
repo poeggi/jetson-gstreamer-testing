@@ -21,13 +21,21 @@ LIGHTTPD_PID_FILE="/tmp/lighttpd_onvif_standalone.pid"
 WSD_PID_FILE="/tmp/wsd_simple_server.pid"
 ONVIF_SERVER_CONF="/tmp/onvif_simple_server_${ONVIF_PORT}.conf"
 
+# Prefer bundled bin/ binary over system PATH (onvif_simple_server, wsd_simple_server)
+_find_bin() {
+  local name="$1"
+  if [[ -x "${SCRIPT_DIR}/bin/${name}" ]]; then echo "${SCRIPT_DIR}/bin/${name}"
+  else command -v "$name" 2>/dev/null || true
+  fi
+}
+
 # ------------------------------------------------------------------------------
 die() { echo "ERROR: $1" >&2; exit 1; }
 
 check_deps() {
   for bin in onvif_simple_server wsd_simple_server lighttpd; do
-    command -v "$bin" >/dev/null 2>&1 || \
-      die "$bin not found. See github.com/roleoroleo/onvif_simple_server"
+    _find_bin "$bin" | grep -q . || \
+      die "$bin not found. Run ./build-onvif.ps1 or see github.com/roleoroleo/onvif_simple_server"
   done
 }
 
@@ -95,7 +103,7 @@ EOF
 
 generate_lighttpd_conf() {
   local onvif_bin
-  onvif_bin=$(command -v onvif_simple_server)
+  onvif_bin=$(_find_bin onvif_simple_server)
   mkdir -p /tmp/onvif_root/onvif
   cat > "$LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
@@ -121,7 +129,7 @@ do_start() {
     | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
   [[ -n "$DEVICE_IP" ]] || die "Cannot determine IP for interface ${ONVIF_INTERFACE}"
 
-  wsd_simple_server \
+  "$(_find_bin wsd_simple_server)" \
     -i "$ONVIF_INTERFACE" \
     -x "http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service" \
     -p "$WSD_PID_FILE" \

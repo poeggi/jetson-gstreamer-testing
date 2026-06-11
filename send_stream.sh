@@ -41,6 +41,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Prefer bundled bin/ binary over system PATH (onvif_simple_server, wsd_simple_server)
+_find_bin() {
+  local name="$1"
+  if [[ -x "${SCRIPT_DIR}/bin/${name}" ]]; then echo "${SCRIPT_DIR}/bin/${name}"
+  else command -v "$name" 2>/dev/null || true
+  fi
+}
+
 # ------------------------------------------------------------------------------
 # Load config
 # ------------------------------------------------------------------------------
@@ -163,14 +171,14 @@ if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
   if nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null; then
     echo "ONVIF already running on port ${ONVIF_PORT}"
   else
-    _ONVIF_BIN=$(command -v onvif_simple_server 2>/dev/null || true)
-    _WSD_BIN=$(command -v wsd_simple_server 2>/dev/null || true)
-    _LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
+    _ONVIF_BIN=$(_find_bin onvif_simple_server)
+    _WSD_BIN=$(_find_bin wsd_simple_server)
+    _LIGHTTPD_BIN=$(_find_bin lighttpd)
 
     if [[ -z "$_ONVIF_BIN" || -z "$_WSD_BIN" || -z "$_LIGHTTPD_BIN" ]]; then
       echo "WARNING: ONVIF_ENABLED=true but stack not fully installed -- skipping" >&2
-      echo "         Missing: onvif_simple_server / wsd_simple_server / lighttpd" >&2
-      echo "         Build from: github.com/roleoroleo/onvif_simple_server" >&2
+      echo "         onvif_simple_server / wsd_simple_server: run ./build-onvif.ps1 (Windows)" >&2
+      echo "         lighttpd: sudo apt install lighttpd" >&2
     else
       # Generate onvif_simple_server conf from stream.conf values
       _ONVIF_SERVER_CONF="/tmp/onvif_simple_server_${ONVIF_PORT}.conf"

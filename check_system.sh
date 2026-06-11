@@ -15,6 +15,16 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Prefer bundled bin/ binary over system PATH (onvif_simple_server, wsd_simple_server)
+_find_bin() {
+  local name="$1"
+  if [[ -x "${SCRIPT_DIR}/bin/${name}" ]]; then echo "${SCRIPT_DIR}/bin/${name}"
+  else command -v "$name" 2>/dev/null || true
+  fi
+}
+
 
 # ==============================================================================
 # ARGUMENTS
@@ -847,14 +857,12 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
   # if not already running, so we verify it is findable and actually starts.
   RTSP_HOST="${RTSP_HOST:-127.0.0.1}"
   RTSP_PORT="${RTSP_PORT:-8554}"
-  SCRIPT_DIR_CHECK="$(cd "$(dirname "$0")" && pwd)"
-
   MEDIAMTX_BIN=""
   for loc in \
     "$(command -v mediamtx 2>/dev/null || true)" \
     /usr/local/bin/mediamtx \
     "${HOME}/mediamtx" \
-    "${SCRIPT_DIR_CHECK}/mediamtx"; do
+    "${SCRIPT_DIR}/mediamtx"; do
     [[ -n "$loc" && -x "$loc" ]] && { MEDIAMTX_BIN="$loc"; break; }
   done
 
@@ -927,12 +935,10 @@ fi
 # onvif_simple_server exposes MediaMTX RTSP streams as an ONVIF Profile S/T
 # device so NVRs (e.g. Dahua) can discover and record without manual RTSP URL
 # entry. It is a CGI binary -- requires lighttpd and wsd_simple_server.
-# No prebuilt ARM64 binaries: must build from source.
-# github.com/roleoroleo/onvif_simple_server
 ONVIF_PORT="${ONVIF_PORT:-8080}"
-_ONVIF_BIN=$(command -v onvif_simple_server 2>/dev/null || true)
-_WSD_BIN=$(command -v wsd_simple_server 2>/dev/null || true)
-_LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
+_ONVIF_BIN=$(_find_bin onvif_simple_server)
+_WSD_BIN=$(_find_bin wsd_simple_server)
+_LIGHTTPD_BIN=$(_find_bin lighttpd)
 
 if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
   ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
@@ -963,7 +969,7 @@ else
   [[ -z "$_WSD_BIN"      ]] && _MISSING="${_MISSING} wsd_simple_server"
   [[ -z "$_LIGHTTPD_BIN" ]] && _MISSING="${_MISSING} lighttpd"
   warn "ONVIF: not available -- missing:${_MISSING}"
-  warn "     Build from source: github.com/roleoroleo/onvif_simple_server"
+  warn "     onvif_simple_server / wsd_simple_server: run ./build-onvif.ps1 (Windows)"
   warn "     lighttpd: sudo apt install lighttpd"
   warn "     Run ./start_onvif.sh after installing to enable NVR discovery"
 fi
