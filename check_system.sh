@@ -952,8 +952,13 @@ if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
       _chk_ec=0
       timeout 1 "$_chk_path" >/dev/null 2>&1 || _chk_ec=$?
       if [[ $_chk_ec -eq 126 ]]; then
-        fail "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
-        fail "     Re-run ./build-onvif/build.ps1 targeting this machine's architecture"
+        if [[ "${ONVIF_ENABLED:-false}" == "true" ]]; then
+          fail "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
+          fail "     Re-run ./build-onvif/build.ps1 targeting this machine's architecture"
+        else
+          warn "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
+          warn "     Not active now (ONVIF_ENABLED=false), but fix before enabling"
+        fi
       else
         ok "ONVIF: bin/${_chk} runs on this CPU"
       fi
