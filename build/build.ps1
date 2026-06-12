@@ -7,7 +7,10 @@
 # First run is slow (5-15 min) -- Docker pulls Ubuntu arm64 image via QEMU emulation.
 # Subsequent runs are fast (image and layer cache reused).
 #
-# Usage:
+# Binaries are always statically linked -- the build fails if static linking is lost.
+# Local source patches from bin/sources/ are applied before building.
+#
+# Usage (run from repo root):
 #   .\build\build.ps1              # builds tag 0.0.4 (default)
 #   .\build\build.ps1 -Tag 0.0.3  # build a specific release tag
 #
@@ -20,10 +23,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Root    = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$BinDir  = Join-Path $Root "bin"
-$DockerfileDir = Join-Path $Root "build"
-$ImageTag = "jetson-onvif-build:$Tag"
+$Root         = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BinDir       = Join-Path $Root "bin"
+$Dockerfile   = Join-Path $Root "build" | Join-Path -ChildPath "Dockerfile"
+$ImageTag     = "jetson-onvif-build:$Tag"
 
 # Ensure bin/ exists
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
@@ -32,16 +35,17 @@ Write-Host ""
 Write-Host "Building onvif_simple_server + wsd_simple_server"
 Write-Host "  Platform : linux/arm64  (QEMU emulation)"
 Write-Host "  Base     : ubuntu:22.04"
-Write-Host "  Tag      : $Tag"
+Write-Host "  Tag      : $Tag  (upstream source, local patches applied)"
 Write-Host "  Output   : $BinDir"
 Write-Host ""
 
-# Build the Docker image
+# Build context is the repo root so Dockerfile can COPY from bin/sources/.
 docker build `
     --platform linux/arm64 `
     --build-arg "TAG=$Tag" `
+    --file $Dockerfile `
     --tag $ImageTag `
-    $DockerfileDir
+    $Root
 
 # Extract binaries from the image
 $ctr = "onvif-extract-$(Get-Date -Format 'yyyyMMddHHmmss')"
