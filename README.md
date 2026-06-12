@@ -193,11 +193,12 @@ Use `receive_stream.sh [main|sub]` for the above with the correct codec pre-conf
 |   |-- start_onvif.sh       # Start/stop full ONVIF stack (lighttpd + wsd)
 |   |-- start_wsd.sh         # Start/stop WS-Discovery only
 |   +-- sources/             # Build system + modified C sources
-|       |-- src/             # Local copy of modified onvif_simple_server sources
+|       |-- patches/         # git format-patch series vs upstream master
 |       |-- Dockerfile       # arm64 Docker image; clones from GitHub fork and builds
 |       |-- cross-build-windows.ps1  # Windows: Docker cross-compile to arm64
-|       |-- build-on-device.sh       # Jetson: native arm64 build from src/
-|       +-- README.md        # Build instructions and source modification notes
+|       |-- build-on-device.sh       # Jetson: clones fork, native arm64 build
+|       |-- README.md        # Build instructions and source modification notes
+|       +-- onvif_simple_server/     # (gitignored) fork clone, created on first build
 |
 |-- blueprints/              # Config file templates
 |   +-- mediamtx.yml         # MediaMTX RTSP server config

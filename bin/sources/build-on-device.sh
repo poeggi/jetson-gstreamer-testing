@@ -15,6 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BIN_DIR="${REPO_DIR}/bin"
 BRANCH="feature/onvif-mac-uuid"
+FORK_URL="https://github.com/poeggi/onvif_simple_server.git"
+SRC_DIR="${SCRIPT_DIR}/onvif_simple_server"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -33,15 +35,26 @@ ARCH="$(uname -m)"
 echo ""
 echo "Building onvif_simple_server + wsd_simple_server"
 echo "  Platform : native arm64 (Jetson, no Docker)"
-echo "  Source   : ${SCRIPT_DIR}  (local sources)"
+echo "  Branch   : ${BRANCH}  (poeggi/onvif_simple_server)"
 echo "  Output   : ${BIN_DIR}"
 echo ""
+
+# Clone or update the fork into bin/sources/onvif_simple_server/
+# (gitignored -- not committed to this repo)
+if [[ -d "${SRC_DIR}/.git" ]]; then
+    echo "Updating existing clone..."
+    git -C "${SRC_DIR}" fetch origin
+    git -C "${SRC_DIR}" checkout "${BRANCH}"
+    git -C "${SRC_DIR}" pull --ff-only origin "${BRANCH}"
+else
+    echo "Cloning ${FORK_URL} branch ${BRANCH}..."
+    git clone --depth 1 --branch "${BRANCH}" "${FORK_URL}" "${SRC_DIR}"
+fi
 
 TMP_BUILD="$(mktemp -d)"
 trap 'rm -rf "$TMP_BUILD"' EXIT
 
-# Build from local sources
-cp -r "${SCRIPT_DIR}/src/"* "${TMP_BUILD}/"
+cp -r "${SRC_DIR}/"* "${TMP_BUILD}/"
 
 # Build bundled libtomcrypt
 cd "${TMP_BUILD}/extras"

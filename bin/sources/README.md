@@ -7,8 +7,8 @@ This directory contains the build system for compiling `onvif_simple_server` and
 
 | Binary | Source |
 |--------|--------|
-| `onvif_simple_server` | `src/` (local copy, see below) |
-| `wsd_simple_server` | `src/` (local copy, see below) |
+| `onvif_simple_server` | [poeggi/onvif_simple_server](https://github.com/poeggi/onvif_simple_server) fork, branch `feature/onvif-mac-uuid` |
+| `wsd_simple_server` | same |
 
 Both binaries are built **fully statically linked** and placed into `../../bin/`
 (the repo-level `bin/` directory). They run on any JetPack version without
@@ -16,26 +16,24 @@ needing matching glibc or other shared libs.
 
 ---
 
-## Source code (`src/`)
+## Source code
 
-`src/` is a local copy of the [poeggi/onvif_simple_server](https://github.com/poeggi/onvif_simple_server)
-fork, tracking branch `feature/onvif-mac-uuid`. This fork carries our modifications
-on top of [roleoroleo/onvif_simple_server](https://github.com/roleoroleo/onvif_simple_server).
+Sources live in the [poeggi/onvif_simple_server](https://github.com/poeggi/onvif_simple_server)
+fork on branch `feature/onvif-mac-uuid`. This fork carries our modifications on top of
+[roleoroleo/onvif_simple_server](https://github.com/roleoroleo/onvif_simple_server).
 
-### Key modifications in this fork
+Work on the fork at: `d:\repos\onvif_simple_server` (or clone it fresh anywhere).
+
+### Key modifications
 
 | File | What changed |
 |------|-------------|
-| `wsd_simple_server.c` | Automatic interface/IP detection (no `-i` flag needed); dual-stack `-6` support; removed duplicate SHA-1/UUID/MAC implementations |
+| `wsd_simple_server.c` | Auto interface/IP detection (no `-i` flag); dual-stack `-6` support; deduped SHA-1/UUID/MAC |
 | `conf.c` | Fixed missing `#include <net/if.h>` (IFNAMSIZ); fixed printf format string bug |
 | `utils.c` / `utils.h` | MAC-based UUID v5 (stable ONVIF device UUID); SHA-1 helpers shared by both binaries |
 
-The local `src/` copy exists so that:
-- `build-on-device.sh` can build natively on the Jetson without internet access
-- The exact modified sources that produced the committed binaries are visible in this repo
-
-**Keeping `src/` in sync:** after pulling new commits from the fork, copy the changed
-files from the clone into `src/` and rebuild.
+All changes are documented as numbered patch files in `patches/` (generated with
+`git format-patch origin/master..HEAD`).
 
 ---
 
@@ -44,7 +42,7 @@ files from the clone into `src/` and rebuild.
 | Script | When to use |
 |--------|-------------|
 | `cross-build-windows.ps1` | **Windows:** Docker Desktop cross-compiles for arm64 via QEMU |
-| `build-on-device.sh` | **Jetson:** native arm64 build, no Docker required |
+| `build-on-device.sh` | **Jetson:** native arm64 build, clones fork directly |
 
 ### Windows (cross-compile)
 
@@ -52,12 +50,11 @@ Requirements: Docker Desktop 4.x+ with multi-arch support (enabled by default).
 
 ```powershell
 # Run from repo root:
-.\bin\sources\cross-build-windows.ps1                                    # default branch
-.\bin\sources\cross-build-windows.ps1 -Branch feature/dual-stack-onvif  # specific branch
+.\bin\sources\cross-build-windows.ps1                                      # default branch
+.\bin\sources\cross-build-windows.ps1 -Branch feature/onvif-mac-uuid      # specific branch
 ```
 
 First run: 5–15 min (Docker pulls arm64 Ubuntu image via QEMU). Subsequent runs: fast (cache).
-The `Dockerfile` clones from the GitHub fork and builds from there.
 
 To force a fresh clone when the branch HEAD changed without the branch name changing:
 
@@ -65,13 +62,11 @@ To force a fresh clone when the branch HEAD changed without the branch name chan
 docker build --build-arg "CACHE_BUST=$(Get-Date -UFormat %s)" ...
 ```
 
-(The `CACHE_BUST` ARG in the Dockerfile is wired up for this purpose.)
-
 ### Jetson (native build)
 
 Requirements (install once):
 ```bash
-sudo apt-get install gcc make libjson-c-dev zlib1g-dev wget xz-utils
+sudo apt-get install git gcc make libjson-c-dev zlib1g-dev wget xz-utils
 ```
 
 ```bash
@@ -79,8 +74,9 @@ sudo apt-get install gcc make libjson-c-dev zlib1g-dev wget xz-utils
 ./bin/sources/build-on-device.sh
 ```
 
-Builds from `bin/sources/src/` directly — no internet required for sources.
-Only `libtomcrypt` is downloaded from GitHub releases at build time.
+Clones the fork into `bin/sources/onvif_simple_server/` (gitignored — never committed).
+On subsequent runs the existing clone is updated via `git pull`. Only `libtomcrypt`
+is downloaded separately at build time.
 
 ---
 
@@ -96,7 +92,8 @@ v1.18.2 with a minimal subset (SHA1 + Base64 only).
 
 | File | Purpose |
 |------|---------|
-| `src/` | Local copy of modified source code (poeggi fork, feature/onvif-mac-uuid) |
 | `Dockerfile` | Multi-stage arm64 image; clones from GitHub fork and builds |
 | `cross-build-windows.ps1` | Windows PowerShell driver: builds Docker image, extracts binaries to `bin/` |
-| `build-on-device.sh` | Native Jetson build script; builds from `src/` into `bin/` |
+| `build-on-device.sh` | Native Jetson build script; clones fork, builds into `bin/` |
+| `patches/` | `git format-patch` series: all our changes vs upstream master |
+| `onvif_simple_server/` | *(gitignored)* Local fork clone, created by `build-on-device.sh` |
