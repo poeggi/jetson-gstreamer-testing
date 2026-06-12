@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 roleo.
+ * Copyright (c) 2024 roleo.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@
 #define TYPE "NetworkVideoTransmitter"
 
 #define DEFAULT_LOG_FILE "/var/log/wsd_simple_server.log"
-#define TEMPLATE_DIR "/etc/wsd_simple_server"
+#define DEFAULT_TEMPLATE_DIR "/etc/wsd_simple_server"
 
 #define RECV_BUFFER_LEN 4096
 
@@ -63,6 +63,7 @@ int sock;
 struct sockaddr_in addr_in;
 int addr_len;
 char xaddr[1024];
+char template_dir[1024];
 int exit_main;
 int msg_number;
 char uuid[UUID_LEN + 1];
@@ -221,7 +222,7 @@ void signal_handler(int signal)
 
     // Send Bye message
     log_info("Sending Bye message.");
-    sprintf(template_file, "%s/Bye.xml", TEMPLATE_DIR);
+    sprintf(template_file, "%s/Bye.xml", template_dir);
     size = cat(NULL, template_file, 12,
             "%MSG_UUID%", msg_uuid,
             "%MSG_NUMBER%", s_tmp,
@@ -232,8 +233,9 @@ void signal_handler(int signal)
 
     message = (char *) malloc((size + 1) * sizeof(char));
     if (message == NULL) {
-        log_fatal("Malloc error.\n");
+        log_fatal("Malloc error.");
         shutdown(sock, SHUT_RDWR);
+        close(sock);
         // Exit from main loop
         exit_main = 1;
     }
@@ -247,9 +249,10 @@ void signal_handler(int signal)
             "%ADDRESS%", xaddr);
 
     if (sendto(sock, message, strlen(message), 0, (struct sockaddr *) &addr_in, sizeof(addr_in)) < 0) {
-        log_fatal("Error sending Bye message.\n");
+        log_fatal("Error sending Bye message.");
         free(message);
         shutdown(sock, SHUT_RDWR);
+        close(sock);
         // Exit from main loop
         exit_main = 1;
         exit(EXIT_FAILURE);
@@ -259,14 +262,15 @@ void signal_handler(int signal)
 
     // Exit from main loop
     shutdown(sock, SHUT_RDWR);
+    close(sock);
     exit_main = 1;
 }
 
 void print_usage(char *progname)
 {
-    fprintf(stderr, "\nUsage: %s [-i INTERFACE] -x XADDR [-m MODEL] [-n MANUFACTURER] -p PID_FILE [-f] [-d LEVEL]\n\n", progname);
+    fprintf(stderr, "\nUsage: %s [-i INTERFACE] -x XADDR [-m MODEL] [-n MANUFACTURER] -p PID_FILE [-t TEMPLATE_DIR] [-f] [-d LEVEL]\n\n", progname);
     fprintf(stderr, "\t-i, --if_name\n");
-    fprintf(stderr, "\t\tnetwork interface (optional; auto-detected from routing table if omitted)\n");
+    fprintf(stderr, "\t\tnetwork interface (auto-detected; use -i to force a specific interface)\n");
     fprintf(stderr, "\t-x, --xaddr\n");
     fprintf(stderr, "\t\tresource address\n");
     fprintf(stderr, "\t-m, --model\n");
@@ -275,6 +279,8 @@ void print_usage(char *progname)
     fprintf(stderr, "\t\thardware manufacturer\n");
     fprintf(stderr, "\t-p, --pid_file\n");
     fprintf(stderr, "\t\tpid file\n");
+    fprintf(stderr, "\t-t, --template_dir\n");
+    fprintf(stderr, "\t\ttemplate directory (default: %s)\n", DEFAULT_TEMPLATE_DIR);
     fprintf(stderr, "\t-f, --foreground\n");
     fprintf(stderr, "\t\tdon't daemonize\n");
     fprintf(stderr, "\t-d LEVEL, --debug LEVEL\n");
@@ -293,16 +299,20 @@ int main(int argc, char **argv)  {
     char *xaddr_s;
     int foreground;
     char s_tmp[32];
+    const char *method;
 
     struct ip_mreq mr;
     long size;
     char recv_buffer[RECV_BUFFER_LEN];
+    int recv_len;
+    char *recv_copy;
 
     if_name = NULL;
     pid_file = NULL;
     xaddr_s = NULL;
     strcpy(model, "MODEL_NAME");
     strcpy(hardware, "HARDWARE_MANUFACTURER");
+    strcpy(template_dir, DEFAULT_TEMPLATE_DIR);
     foreground = 0;
     debug = 5;
 
@@ -314,6 +324,7 @@ int main(int argc, char **argv)  {
             {"xaddr",  required_argument, 0, 'x'},
             {"model",  required_argument, 0, 'm'},
             {"hardware",  required_argument, 0, 'n'},
+            {"template_dir",  required_argument, 0, 't'},
             {"foreground",  no_argument, 0, 'f'},
             {"debug",  required_argument, 0, 'd'},
             {"help",  no_argument, 0, 'h'},
@@ -322,7 +333,7 @@ int main(int argc, char **argv)  {
         /* getopt_long stores the option index here. */
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "i:p:x:m:n:fd:h",
+        c = getopt_long (argc, argv, "i:p:x:m:n:t:fd:h",
                          long_options, &option_index);
 
         /* Detect the end of the options. */
@@ -358,6 +369,15 @@ int main(int argc, char **argv)  {
 
         case 'p':
             pid_file = optarg;
+            break;
+
+        case 't':
+            if (strlen(optarg) < sizeof(template_dir)) {
+                strcpy(template_dir, optarg);
+            } else {
+                print_usage(argv[0]);
+                exit(EXIT_FAILURE);
+            }
             break;
 
         case 'f':
@@ -434,29 +454,29 @@ int main(int argc, char **argv)  {
 
     // Checking pid file
     if (check_pid(pid_file) == 1) {
-        log_fatal("Program is already running.\n");
+        log_fatal("Program is already running.");
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
     if (create_pid(pid_file) < 0) {
-        log_fatal("Error creating pid file %s\n", pid_file);
+        log_fatal("Error creating pid file %s", pid_file);
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
 
-    // Check if TEMPLATE_DIR exists
-    if (access(TEMPLATE_DIR, F_OK ) != -1) {
+    // Check if template_dir exists
+    if (access(template_dir, F_OK ) != -1) {
         // file exists
         DIR *dirptr;
-        if ((dirptr = opendir(TEMPLATE_DIR)) != NULL) {
+        if ((dirptr = opendir(template_dir)) != NULL) {
             closedir (dirptr);
         } else {
-            log_fatal("Unable to open directory %s", TEMPLATE_DIR);
+            log_fatal("Unable to open directory %s", template_dir);
             fclose(fLog);
             exit(EXIT_FAILURE);
         }
     } else {
-        log_fatal("Unable to open directory %s", TEMPLATE_DIR);
+        log_fatal("Unable to open directory %s", template_dir);
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
@@ -473,7 +493,8 @@ int main(int argc, char **argv)  {
         get_ip_address(address, netmask, if_name);
     } else {
         if (detect_outbound_address(address) != 0) {
-            log_fatal("Cannot auto-detect network interface. Use -i <interface> to specify one.\n");
+            log_fatal("Cannot auto-detect network interface. Use -i <interface> to specify one.");
+            close(sock);
             fclose(fLog);
             exit(EXIT_FAILURE);
         }
@@ -482,14 +503,15 @@ int main(int argc, char **argv)  {
     log_debug("Address = %s", address);
 
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
-        log_fatal("Unable to create socket.\n");
+        log_fatal("Unable to create socket.");
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
 
     if (bind(sock, (struct sockaddr *) &addr_in, sizeof(addr_in)) == -1) {
-        log_fatal("Unable to bind socket\n");
+        log_fatal("Unable to bind socket");
         shutdown(sock, SHUT_RDWR);
+        close(sock);
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
@@ -497,8 +519,9 @@ int main(int argc, char **argv)  {
     mr.imr_multiaddr.s_addr = inet_addr(MULTICAST_ADDRESS);
     mr.imr_interface.s_addr = inet_addr(address);
     if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *) &mr, sizeof(mr)) == -1) {
-        log_fatal("Error joining multicast group\n");
+        log_fatal("Error joining multicast group");
         shutdown(sock, SHUT_RDWR);
+        close(sock);
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
@@ -513,7 +536,7 @@ int main(int argc, char **argv)  {
 
     // Send Hello message
     log_info("Sending Hello message.");
-    sprintf(template_file, "%s/Hello.xml", TEMPLATE_DIR);
+    sprintf(template_file, "%s/Hello.xml", template_dir);
     size = cat(NULL, template_file, 12,
             "%MSG_UUID%", msg_uuid,
             "%MSG_NUMBER%", s_tmp,
@@ -524,8 +547,9 @@ int main(int argc, char **argv)  {
 
     message = (char *) malloc((size + 1) * sizeof(char));
     if (message == NULL) {
-        log_fatal("Malloc error.\n");
+        log_fatal("Malloc error.");
         shutdown(sock, SHUT_RDWR);
+        close(sock);
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
@@ -540,9 +564,10 @@ int main(int argc, char **argv)  {
 
     addr_in.sin_addr.s_addr = inet_addr(MULTICAST_ADDRESS);
     if (sendto(sock, message, strlen(message), 0, (struct sockaddr *) &addr_in, sizeof(addr_in)) < 0) {
-        log_fatal("Error sending Hello message.\n");
+        log_fatal("Error sending Hello message.");
         free(message);
         shutdown(sock, SHUT_RDWR);
+        close(sock);
         fclose(fLog);
         exit(EXIT_FAILURE);
     }
@@ -558,14 +583,26 @@ int main(int argc, char **argv)  {
 
         // Read from socket
         memset(recv_buffer, '\0', RECV_BUFFER_LEN);
-        if (recvfrom(sock, recv_buffer, RECV_BUFFER_LEN, 0, (struct sockaddr *) &addr_in, &addr_len) >= 0) {
+        addr_len = sizeof(addr_in);  // init address
+
+        if (recvfrom(sock, recv_buffer, RECV_BUFFER_LEN, 0, (struct sockaddr *) &addr_in, &addr_len) > 0) {
 
             // Check if the message is a response
-            if ((strstr(recv_buffer, TYPE) != NULL) && (strstr(recv_buffer, "XAddrs") == NULL)) {
+            if (strstr(recv_buffer, "XAddrs") == NULL) {
 
                 const char *relates_to_uuid;
 
                 log_debug("%s", recv_buffer);
+
+                // Check if it's a Probe message
+                init_xml(recv_buffer, strlen(recv_buffer));
+                method = get_method(1);
+                if ((method == NULL) || (strcasecmp("Probe", method) != 0)) {
+                    log_debug("This is not a Probe message");
+                    close_xml();
+                    continue;
+                }
+                log_debug("Probe message");
 
                 // Prepare ProbeMatches message
                 msg_number++;
@@ -573,17 +610,16 @@ int main(int argc, char **argv)  {
                 gen_uuid(msg_uuid);
                 relates_to_uuid = NULL;
 
-                init_xml(recv_buffer, strlen(recv_buffer));
                 relates_to_uuid = get_element("MessageID", "Header");
                 if (relates_to_uuid == NULL) {
-                    log_error("Cannot find MessageID.\n");
+                    log_error("Cannot find MessageID.");
                     continue;
                 }
                 close_xml();
 
                 // Send ProbeMatches message
                 log_info("Sending ProbeMatches message.");
-                sprintf(template_file, "%s/ProbeMatches.xml", TEMPLATE_DIR);
+                sprintf(template_file, "%s/ProbeMatches.xml", template_dir);
                 size = cat(NULL, template_file, 14,
                         "%MSG_UUID%", msg_uuid,
                         "%REL_TO_UUID%", relates_to_uuid,
@@ -595,7 +631,7 @@ int main(int argc, char **argv)  {
 
                 message_loop = (char *) malloc((size + 1) * sizeof(char));
                 if (message_loop == NULL) {
-                    log_error("Malloc error.\n");
+                    log_error("Malloc error.");
                     continue;
                 }
 
@@ -609,7 +645,7 @@ int main(int argc, char **argv)  {
                         "%ADDRESS%", xaddr);
 
                 if (sendto(sock, message_loop, strlen(message_loop), 0, (struct sockaddr *) &addr_in, sizeof(addr_in)) < 0) {
-                    log_error("Error sending ProbeMatches message.\n");
+                    log_error("Error sending ProbeMatches message.");
                     free(message_loop);
                     continue;
                 }
@@ -620,6 +656,7 @@ int main(int argc, char **argv)  {
     }
 
     shutdown(sock, SHUT_RDWR);
+    close(sock);
 
     log_info("Terminating program.");
     fclose(fLog);

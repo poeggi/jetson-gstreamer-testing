@@ -1,6 +1,6 @@
---- /home/nvidia/wsd_orig.c	2026-06-12 11:42:29.329708770 +0800
-+++ /home/nvidia/wsd_patched.c	2026-06-12 11:52:41.850421317 +0800
-@@ -71,6 +71,49 @@
+--- /home/nvidia/wsd_master.c	2026-06-12 13:02:40.783745776 +0800
++++ /home/nvidia/wsd_pr.c	2026-06-12 13:03:51.310655459 +0800
+@@ -72,6 +72,49 @@
  char model[64];
  char hardware[64];
  
@@ -50,19 +50,19 @@
  int daemonize(int flags)
  {
      int maxfd, fd;
-@@ -221,9 +264,9 @@
+@@ -225,9 +268,9 @@
  
  void print_usage(char *progname)
  {
--    fprintf(stderr, "\nUsage: %s -i INTERFACE -x XADDR [-m MODEL] [-n MANUFACTURER] -p PID_FILE [-f] [-d LEVEL]\n\n", progname);
-+    fprintf(stderr, "\nUsage: %s [-i INTERFACE] -x XADDR [-m MODEL] [-n MANUFACTURER] -p PID_FILE [-f] [-d LEVEL]\n\n", progname);
+-    fprintf(stderr, "\nUsage: %s -i INTERFACE -x XADDR [-m MODEL] [-n MANUFACTURER] -p PID_FILE [-t TEMPLATE_DIR] [-f] [-d LEVEL]\n\n", progname);
++    fprintf(stderr, "\nUsage: %s [-i INTERFACE] -x XADDR [-m MODEL] [-n MANUFACTURER] -p PID_FILE [-t TEMPLATE_DIR] [-f] [-d LEVEL]\n\n", progname);
      fprintf(stderr, "\t-i, --if_name\n");
 -    fprintf(stderr, "\t\tnetwork interface\n");
-+    fprintf(stderr, "\t\tnetwork interface (optional; auto-detected from routing table if omitted)\n");
++    fprintf(stderr, "\t\tnetwork interface (auto-detected; use -i to force a specific interface)\n");
      fprintf(stderr, "\t-x, --xaddr\n");
      fprintf(stderr, "\t\tresource address\n");
      fprintf(stderr, "\t-m, --model\n");
-@@ -356,11 +399,6 @@
+@@ -376,11 +419,6 @@
          }
      }
  
@@ -74,7 +74,7 @@
      if (xaddr_s == NULL) {
          print_usage(argv[0]);
          exit(EXIT_SUCCESS);
-@@ -390,7 +428,7 @@
+@@ -410,7 +448,7 @@
      log_set_quiet(1);
      log_info("Starting program.");
  
@@ -83,7 +83,7 @@
      log_debug("Argument pid_file = %s", pid_file);
      log_debug("Argument xaddr = %s", xaddr_s);
  
-@@ -431,7 +469,16 @@
+@@ -451,7 +489,17 @@
      addr_in.sin_family = AF_INET;
      addr_in.sin_port = htons(PORT);
  
@@ -92,7 +92,8 @@
 +        get_ip_address(address, netmask, if_name);
 +    } else {
 +        if (detect_outbound_address(address) != 0) {
-+            log_fatal("Cannot auto-detect network interface. Use -i <interface> to specify one.\n");
++            log_fatal("Cannot auto-detect network interface. Use -i <interface> to specify one.");
++            close(sock);
 +            fclose(fLog);
 +            exit(EXIT_FAILURE);
 +        }
