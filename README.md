@@ -28,13 +28,13 @@ Two things to verify for your setup:
 
 ### Viewing (Windows)
 ```powershell
-.\windows-helpers\view_stream.ps1                 # MAIN stream (H.265 4K)
-.\windows-helpers\view_stream.ps1 sub             # SUB stream (H.264 1080p)
+.\vlc-helpers\view_stream.ps1                 # MAIN stream (H.265 4K)
+.\vlc-helpers\view_stream.ps1 sub             # SUB stream (H.264 1080p)
 ```
 
 ### Viewing (Linux / Jetson)
 ```bash
-./view_stream.sh                  # MAIN stream via VLC
+./vlc-helpers/view_stream.sh      # MAIN stream via VLC
 ./receive_stream.sh               # MAIN stream via GStreamer (hardware decode)
 ./receive_stream.sh sub           # SUB stream via GStreamer
 ```
@@ -143,7 +143,7 @@ Pipeline sender contributes ~70–100 ms (camera exposure + NVENC). Most clients
 
 ### VLC
 
-Use `view_stream.ps1` / `view_stream.sh`, or manually:
+Use `vlc-helpers/view_stream.ps1` / `vlc-helpers/view_stream.sh`, or manually:
 ```
 vlc --rtsp-tcp --network-caching=200 --clock-synchro=0 --no-audio rtsp://HOST:8554/main
 ```
