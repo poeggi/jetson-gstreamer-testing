@@ -1,0 +1,34 @@
+From 003a9f97cc98e1ce7148930ee8ed3a29576efdf2 Mon Sep 17 00:00:00 2001
+From: poeggi <48416618+poeggi@users.noreply.github.com>
+Date: Fri, 12 Jun 2026 22:11:03 +0800
+Subject: [PATCH 11/12] fix: add net/if.h for IFNAMSIZ, fix printf format
+ string in print_conf_help
+
+---
+ conf.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/conf.c b/conf.c
+index dd28ae2..47f3d89 100644
+--- a/conf.c
++++ b/conf.c
+@@ -22,6 +22,7 @@
+ #include <string.h>
+ #include <limits.h>
+ #include <errno.h>
++#include <net/if.h>
+ 
+ #include <json-c/json.h>
+ #include "conf.h"
+@@ -1323,7 +1324,7 @@ void print_conf_help()
+     fprintf(stderr, "\tmove_down=/tmp/sd/yi-hack/bin/ipc_cmd -m down -s %%f\n");
+     fprintf(stderr, "\tmove_in=/tmp/sd/yi-hack/bin/ipc_cmd -m in -s %%f\n");
+     fprintf(stderr, "\tmove_out=/tmp/sd/yi-hack/bin/ipc_cmd -m out -s %%f\n");
+-    fprintf(stderr, "\tmove_stop=/tmp/sd/yi-hack/bin/ipc_cmd -m stop -t %s\n");
++    fprintf(stderr, "\tmove_stop=/tmp/sd/yi-hack/bin/ipc_cmd -m stop -t %%s\n");
+     fprintf(stderr, "\tmove_preset=/tmp/sd/yi-hack/bin/ipc_cmd -p %%d\n");
+     fprintf(stderr, "\tgoto_home_position=/tmp/sd/yi-hack/bin/ipc_cmd -p 0\n");
+     fprintf(stderr, "\tset_preset=/tmp/sd/yi-hack/script/ptz_presets.sh -a add_preset -n %%d -m %%s\n");
+-- 
+2.53.0.windows.1
+

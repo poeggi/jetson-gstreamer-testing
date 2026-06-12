@@ -1,0 +1,674 @@
+From a88bf67a1754dbce821116711c73a366aeace9d8 Mon Sep 17 00:00:00 2001
+From: poeggi <48416618+poeggi@users.noreply.github.com>
+Date: Fri, 12 Jun 2026 17:36:45 +0800
+Subject: [PATCH 10/12] feat: auto-detect local address from REMOTE_ADDR; ifs=
+ now optional override
+
+Replace hardcoded ifs=/address= config with protocol-aware auto-detection:
+- detect_local_address() uses REMOTE_ADDR + connect() trick to find the
+  outbound local IP matching the client's protocol (IPv4 or IPv6)
+- Loopback clients (local proxy) fall back to WSD multicast connect trick
+- ifs= config option kept as optional override (same semantics as -i in
+  wsd_simple_server): when set, address and MAC both come from that interface
+- All service files (device, events, media, media2) use service_ctx.address_url
+  for URL construction instead of calling get_ip_address() per request
+- GetNetworkInterfaces keeps get_ip_address() for netmask/prefix-length
+- conf.example and JSON example updated: ifs= commented out as optional
+---
+ README.md                        |   4 +-
+ conf.c                           |  81 ++++++++++++++++---
+ device_service.c                 |  44 +++-------
+ events_service.c                 |  10 +--
+ fault.c                          |   8 +-
+ media2_service.c                 |  16 +---
+ media_service.c                  |  16 +---
+ onvif_simple_server.conf.example |   2 +-
+ onvif_simple_server.h            |   4 +-
+ onvif_simple_server.json.example |   1 -
+ utils.c                          | 133 +++++++++++++++++++++++++++++++
+ utils.h                          |   3 +
+ 12 files changed, 234 insertions(+), 88 deletions(-)
+
+diff --git a/README.md b/README.md
+index af35b26..45030e2 100644
+--- a/README.md
++++ b/README.md
+@@ -94,7 +94,7 @@ manufacturer=Yi
+ firmware_ver=x.y.z
+ hardware_id=AFUS
+ serial_num=AFUSY12ABCDE3F456789
+-ifs=wlan0
++#ifs=wlan0  # optional: override interface (auto-detected from client address if omitted)
+ port=80
+ scope=onvif://www.onvif.org/Profile/Streaming
+ scope=onvif://www.onvif.org/Profile/T
+@@ -250,7 +250,7 @@ Brief explanation of some parameters:
+ 
+ | Param | Description |
+ | --- | --- |
+-| ifs | the network interface used by your http server |
++| ifs | override the network interface (optional; auto-detected from client address if omitted) |
+ | port | the TCP port used by your http server |
+ | user | the user you want to set for WS-UsernameToken authentication, if blank security is disabled |
+ | adv_enable_media2 | enable media2 methods for Profile T |
+diff --git a/conf.c b/conf.c
+index 83ae792..dd28ae2 100644
+--- a/conf.c
++++ b/conf.c
+@@ -616,11 +616,40 @@ int process_conf_file(char *file)
+         service_ctx.hardware_id = (char *) malloc(strlen(DEFAULT_HW_ID) + 1);
+         strcpy(service_ctx.hardware_id, DEFAULT_HW_ID);
+     }
+-    if (service_ctx.ifs == NULL) {
+-        service_ctx.ifs = (char *) malloc(strlen(DEFAULT_IFS) + 1);
+-        strcpy(service_ctx.ifs, DEFAULT_IFS);
++    /* Address and interface resolution */
++    if (service_ctx.ifs != NULL) {
++        /* Interface explicitly configured: derive address from it */
++        char netmask[16];
++        if (get_ip_address(service_ctx.address, netmask, service_ctx.ifs) < 0) {
++            log_fatal("Cannot get IP address from interface %s.", service_ctx.ifs);
++            exit(EXIT_FAILURE);
++        }
++    } else {
++        /* Auto-detect: derive address from REMOTE_ADDR, then detect interface */
++        const char *remote = getenv("REMOTE_ADDR");
++        if (!remote || detect_local_address(remote, service_ctx.address,
++                                            sizeof(service_ctx.address)) != 0) {
++            log_fatal("Cannot determine local address: REMOTE_ADDR not available.");
++            exit(EXIT_FAILURE);
++        }
++        char auto_ifs[IFNAMSIZ];
++        if (get_ifname_by_addr(service_ctx.address, auto_ifs, sizeof(auto_ifs)) == 0) {
++            service_ctx.ifs = (char *) malloc(strlen(auto_ifs) + 1);
++            strcpy(service_ctx.ifs, auto_ifs);
++        } else {
++            service_ctx.ifs = (char *) malloc(strlen(DEFAULT_IFS) + 1);
++            strcpy(service_ctx.ifs, DEFAULT_IFS);
++        }
+     }
+-
++    if (strchr(service_ctx.address, ':'))
++        snprintf(service_ctx.address_url, sizeof(service_ctx.address_url),
++                 "[%s]", service_ctx.address);
++    else
++        strncpy(service_ctx.address_url, service_ctx.address,
++                sizeof(service_ctx.address_url) - 1);
++    service_ctx.address_url[sizeof(service_ctx.address_url) - 1] = '\0';
++
++    /* Stable device UUID from MAC */
+     {
+         uint8_t mac[6] = {0};
+         if (get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
+@@ -785,7 +814,6 @@ int process_json_conf_file(char *file)
+     get_string_from_json(&(service_ctx.firmware_ver), json_file, "firmware_ver");
+     get_string_from_json(&(service_ctx.hardware_id), json_file, "hardware_id");
+     get_string_from_json(&(service_ctx.serial_num), json_file, "serial_num");
+-    get_string_from_json(&(service_ctx.ifs), json_file, "ifs");
+     get_int_from_json(&(service_ctx.port), json_file, "port");
+ 
+     if (json_object_object_get_ex(json_file, "scopes", &value)) {
+@@ -805,6 +833,7 @@ int process_json_conf_file(char *file)
+     }
+     get_string_from_json(&(service_ctx.user), json_file, "user");
+     get_string_from_json(&(service_ctx.password), json_file, "password");
++    get_string_from_json(&(service_ctx.ifs), json_file, "ifs");
+     get_bool_from_json(&(service_ctx.adv_enable_media2), json_file, "adv_enable_media2");
+     get_bool_from_json(&(service_ctx.adv_fault_if_unknown), json_file, "adv_fault_if_unknown");
+     get_bool_from_json(&(service_ctx.adv_fault_if_set), json_file, "adv_fault_if_set");
+@@ -836,16 +865,44 @@ int process_json_conf_file(char *file)
+         if (service_ctx.hardware_id)
+             strcpy(service_ctx.hardware_id, DEFAULT_HW_ID);
+     }
+-    if (service_ctx.ifs == NULL) {
+-        service_ctx.ifs = (char*) malloc(strlen(DEFAULT_IFS) + 1);
+-        if (service_ctx.ifs)
+-            strcpy(service_ctx.ifs, DEFAULT_IFS);
++    /* Address and interface resolution */
++    if (service_ctx.ifs != NULL) {
++        /* Interface explicitly configured: derive address from it */
++        char netmask[16];
++        if (get_ip_address(service_ctx.address, netmask, service_ctx.ifs) < 0) {
++            log_fatal("Cannot get IP address from interface %s.", service_ctx.ifs);
++            exit(EXIT_FAILURE);
++        }
++    } else {
++        /* Auto-detect: derive address from REMOTE_ADDR, then detect interface */
++        const char *remote = getenv("REMOTE_ADDR");
++        if (!remote || detect_local_address(remote, service_ctx.address,
++                                            sizeof(service_ctx.address)) != 0) {
++            log_fatal("Cannot determine local address: REMOTE_ADDR not available.");
++            exit(EXIT_FAILURE);
++        }
++        char auto_ifs[IFNAMSIZ];
++        if (get_ifname_by_addr(service_ctx.address, auto_ifs, sizeof(auto_ifs)) == 0) {
++            service_ctx.ifs = (char*) malloc(strlen(auto_ifs) + 1);
++            if (service_ctx.ifs) strcpy(service_ctx.ifs, auto_ifs);
++        } else {
++            service_ctx.ifs = (char*) malloc(strlen(DEFAULT_IFS) + 1);
++            if (service_ctx.ifs) strcpy(service_ctx.ifs, DEFAULT_IFS);
++        }
+     }
+-
++    if (strchr(service_ctx.address, ':'))
++        snprintf(service_ctx.address_url, sizeof(service_ctx.address_url),
++                 "[%s]", service_ctx.address);
++    else
++        strncpy(service_ctx.address_url, service_ctx.address,
++                sizeof(service_ctx.address_url) - 1);
++    service_ctx.address_url[sizeof(service_ctx.address_url) - 1] = '\0';
++
++    /* Stable device UUID from MAC */
+     {
+         uint8_t mac[6] = {0};
+-        if (!service_ctx.ifs || get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
+-            log_fatal("Cannot get MAC address from interface %s -- cannot generate stable device UUID.", service_ctx.ifs ? service_ctx.ifs : "(null)");
++        if (get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
++            log_fatal("Cannot get MAC address from interface %s -- cannot generate stable device UUID.", service_ctx.ifs);
+             exit(EXIT_FAILURE);
+         }
+         gen_uuid_v5_mac(service_ctx.device_uuid, mac);
+diff --git a/device_service.c b/device_service.c
+index 2b7b4ce..348a54d 100644
+--- a/device_service.c
++++ b/device_service.c
+@@ -32,17 +32,6 @@ extern service_context_t service_ctx;
+ 
+ int device_get_services()
+ {
+-    int ret = 0;
+-    char address[16];
+-    char netmask[16];
+-
+-    ret = get_ip_address(address, netmask, service_ctx.ifs);
+-    if (ret < 0 ) {
+-        log_error("Unable to get ip address from interface %s", service_ctx.ifs);
+-        send_action_failed_fault("device_service", -1);
+-        return -1;
+-    }
+-
+     char device_service_address[MAX_LEN];
+     char media_service_address[MAX_LEN];
+     char media2_service_address[MAX_LEN];
+@@ -59,12 +48,12 @@ int device_get_services()
+     port[0] = '\0';
+     if (service_ctx.port != 80)
+         sprintf(port, ":%d", service_ctx.port);
+-    sprintf(device_service_address, "http://%s%s/onvif/device_service", address, port);
+-    sprintf(media_service_address, "http://%s%s/onvif/media_service", address, port);
+-    sprintf(media2_service_address, "http://%s%s/onvif/media2_service", address, port);
+-    sprintf(ptz_service_address, "http://%s%s/onvif/ptz_service", address, port);
+-    sprintf(events_service_address, "http://%s%s/onvif/events_service", address, port);
+-    sprintf(deviceio_service_address, "http://%s%s/onvif/deviceio_service", address, port);
++    sprintf(device_service_address, "http://%s%s/onvif/device_service", service_ctx.address_url, port);
++    sprintf(media_service_address, "http://%s%s/onvif/media_service", service_ctx.address_url, port);
++    sprintf(media2_service_address, "http://%s%s/onvif/media2_service", service_ctx.address_url, port);
++    sprintf(ptz_service_address, "http://%s%s/onvif/ptz_service", service_ctx.address_url, port);
++    sprintf(events_service_address, "http://%s%s/onvif/events_service", service_ctx.address_url, port);
++    sprintf(deviceio_service_address, "http://%s%s/onvif/deviceio_service", service_ctx.address_url, port);
+ 
+     if ((service_ctx.events_enable == EVENTS_PULLPOINT) || (service_ctx.events_enable == EVENTS_BOTH)) {
+         strcpy(epullpoint, "true");
+@@ -417,17 +406,6 @@ int device_get_wsdl_url()
+ 
+ int device_get_capabilities()
+ {
+-    int ret = 0;
+-    char address[16];
+-    char netmask[16];
+-
+-    ret = get_ip_address(address, netmask, service_ctx.ifs);
+-    if (ret < 0 ) {
+-        log_error("Unable to get ip address from interface %s", service_ctx.ifs);
+-        send_action_failed_fault("device_service", -1);
+-        return -1;
+-    }
+-
+     char device_service_address[MAX_LEN];
+     char media_service_address[MAX_LEN];
+     char ptz_service_address[MAX_LEN];
+@@ -464,11 +442,11 @@ int device_get_capabilities()
+     port[0] = '\0';
+     if (service_ctx.port != 80)
+         sprintf(port, ":%d", service_ctx.port);
+-    sprintf(device_service_address, "http://%s%s/onvif/device_service", address, port);
+-    sprintf(media_service_address, "http://%s%s/onvif/media_service", address, port);
+-    sprintf(ptz_service_address, "http://%s%s/onvif/ptz_service", address, port);
+-    sprintf(events_service_address, "http://%s%s/onvif/events_service", address, port);
+-    sprintf(deviceio_service_address, "http://%s%s/onvif/deviceio_service", address, port);
++    sprintf(device_service_address, "http://%s%s/onvif/device_service", service_ctx.address_url, port);
++    sprintf(media_service_address, "http://%s%s/onvif/media_service", service_ctx.address_url, port);
++    sprintf(ptz_service_address, "http://%s%s/onvif/ptz_service", service_ctx.address_url, port);
++    sprintf(events_service_address, "http://%s%s/onvif/events_service", service_ctx.address_url, port);
++    sprintf(deviceio_service_address, "http://%s%s/onvif/deviceio_service", service_ctx.address_url, port);
+ 
+     if ((service_ctx.events_enable == EVENTS_PULLPOINT) || (service_ctx.events_enable == EVENTS_BOTH)) {
+         strcpy(epullpoint, "true");
+diff --git a/events_service.c b/events_service.c
+index d0ec781..13d54cb 100644
+--- a/events_service.c
++++ b/events_service.c
+@@ -71,15 +71,12 @@ int events_create_pull_point_subscription()
+     char iso_str_2[21];
+     int i, subscription_id, sub_index;
+ 
+-    char my_address[16];
+-    char my_netmask[16];
+     char my_port[8];
+     char events_service_address[MAX_LEN];
+     topic_expressions_t *topic_expression;
+ 
+     log_info("CreatePullPointSubscription received");
+ 
+-    get_ip_address(my_address, my_netmask, service_ctx.ifs);
+     my_port[0] = '\0';
+     if (service_ctx.port != 80)
+         sprintf(my_port, ":%d", service_ctx.port);
+@@ -158,7 +155,7 @@ int events_create_pull_point_subscription()
+     sem_memory_post();
+     destroy_shared_memory((void *) subs_evts, 0);
+ 
+-    sprintf(events_service_address, "http://%s%s/onvif/events_service?sub=%d", my_address, my_port, subscription_id);
++    sprintf(events_service_address, "http://%s%s/onvif/events_service?sub=%d", service_ctx.address_url, my_port, subscription_id);
+ 
+     to_iso_date(iso_str, sizeof(iso_str), now);
+     to_iso_date(iso_str_2, sizeof(iso_str_2), expire_time);
+@@ -412,14 +409,11 @@ int events_subscribe()
+     int i, subsel;
+     int subscription_id, sub_index;
+ 
+-    char my_address[16];
+-    char my_netmask[16];
+     char my_port[8];
+     char events_service_address[MAX_LEN];
+ 
+     log_info("Subscribe request received");
+ 
+-    get_ip_address(my_address, my_netmask, service_ctx.ifs);
+     my_port[0] = '\0';
+     if (service_ctx.port != 80)
+         sprintf(my_port, ":%d", service_ctx.port);
+@@ -498,7 +492,7 @@ int events_subscribe()
+     sem_memory_post();
+     destroy_shared_memory((void *) subs_evts, 0);
+ 
+-    sprintf(events_service_address, "http://%s%s/onvif/events_service?sub=%d", my_address, my_port, subscription_id);
++    sprintf(events_service_address, "http://%s%s/onvif/events_service?sub=%d", service_ctx.address_url, my_port, subscription_id);
+ 
+     gen_uuid(msg_uuid);
+ 
+diff --git a/fault.c b/fault.c
+index 1b02aba..32d5d3b 100644
+--- a/fault.c
++++ b/fault.c
+@@ -47,10 +47,6 @@ int send_empty_response(char *ns, char *method)
+ int send_fault(char *service, char *rec_send, char *subcode, char *subcode_ex, char *reason, char *detail)
+ {
+     char msg_uuid[UUID_LEN + 1];
+-    char address[16];
+-    char netmask[16];
+-
+-    get_ip_address(address, netmask, service_ctx.ifs);
+     char device_address[MAX_LEN];
+     char service_address[MAX_LEN];
+     char port[8];
+@@ -59,8 +55,8 @@ int send_fault(char *service, char *rec_send, char *subcode, char *subcode_ex, c
+     port[0] = '\0';
+     if (service_ctx.port != 80)
+         sprintf(port, ":%d", service_ctx.port);
+-    sprintf(device_address, "http://%s%s/onvif", address, port);
+-    sprintf(service_address, "http://%s%s/onvif/%s", address, port, service);
++    sprintf(device_address, "http://%s%s/onvif", service_ctx.address_url, port);
++    sprintf(service_address, "http://%s%s/onvif/%s", service_ctx.address_url, port, service);
+ 
+     gen_uuid(msg_uuid);
+ 
+diff --git a/media2_service.c b/media2_service.c
+index 74af7af..6186c5e 100644
+--- a/media2_service.c
++++ b/media2_service.c
+@@ -1247,16 +1247,12 @@ int media2_get_audio_decoder_configuration_options()
+ 
+ int media2_get_snapshot_uri()
+ {
+-    char address[16];
+-    char netmask[16];
+     char *s;
+     char line[MAX_LEN];
+     const char *profile_token = get_element("ProfileToken", "Body");
+ 
+     memset(line, '\0', sizeof(line));
+ 
+-    get_ip_address(address, netmask, service_ctx.ifs);
+-
+     if (profile_token == NULL) {
+         send_fault("media2_service", "Sender", "ter:InvalidArgVal", "ter:NoProfile", "No profile", "The requested profile does not exist");
+         return -1;
+@@ -1270,7 +1266,7 @@ int media2_get_snapshot_uri()
+             return -2;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[0].snapurl, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[0].snapurl, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[0].snapurl);
+         }
+         // Escape html chars
+@@ -1292,7 +1288,7 @@ int media2_get_snapshot_uri()
+             return -3;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[1].snapurl, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[1].snapurl, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[1].snapurl);
+         }
+         // Escape html chars
+@@ -1314,16 +1310,12 @@ int media2_get_snapshot_uri()
+ 
+ int media2_get_stream_uri()
+ {
+-    char address[16];
+-    char netmask[16];
+     char *s;
+     char line[MAX_LEN];
+     const char *profile_token = get_element("ProfileToken", "Body");
+ 
+     memset(line, '\0', sizeof(line));
+ 
+-    get_ip_address(address, netmask, service_ctx.ifs);
+-
+     if (profile_token == NULL) {
+         send_fault("media2_service", "Sender", "ter:InvalidArgVal", "ter:NoProfile", "No profile", "The requested profile does not exist");
+         return -1;
+@@ -1336,7 +1328,7 @@ int media2_get_stream_uri()
+             return -2;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[0].url, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[0].url, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[0].url);
+         }
+         // Escape html chars
+@@ -1358,7 +1350,7 @@ int media2_get_stream_uri()
+             return -3;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[1].url, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[1].url, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[1].url);
+         }
+         // Escape html chars
+diff --git a/media_service.c b/media_service.c
+index 53f995b..13d7112 100644
+--- a/media_service.c
++++ b/media_service.c
+@@ -749,16 +749,12 @@ int media_get_guaranteed_number_of_video_encoder_instances()
+ 
+ int media_get_snapshot_uri()
+ {
+-    char address[16];
+-    char netmask[16];
+     char *s;
+     char line[MAX_LEN];
+     const char *profile_token = get_element("ProfileToken", "Body");
+ 
+     memset(line, '\0', sizeof(line));
+ 
+-    get_ip_address(address, netmask, service_ctx.ifs);
+-
+     if (profile_token == NULL) {
+         send_fault("media_service", "Sender", "ter:InvalidArgVal", "ter:NoProfile", "No profile", "The requested profile does not exist");
+         return -1;
+@@ -771,7 +767,7 @@ int media_get_snapshot_uri()
+             return -2;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[0].snapurl, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[0].snapurl, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[0].snapurl);
+         }
+         // Escape html chars
+@@ -793,7 +789,7 @@ int media_get_snapshot_uri()
+             return -3;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[1].snapurl, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[1].snapurl, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[1].snapurl);
+         }
+         // Escape html chars
+@@ -815,16 +811,12 @@ int media_get_snapshot_uri()
+ 
+ int media_get_stream_uri()
+ {
+-    char address[16];
+-    char netmask[16];
+     char *s;
+     char line[MAX_LEN];
+     const char *profile_token = get_element("ProfileToken", "Body");
+ 
+     memset(line, '\0', sizeof(line));
+ 
+-    get_ip_address(address, netmask, service_ctx.ifs);
+-
+     if (profile_token == NULL) {
+         send_fault("media_service", "Sender", "ter:InvalidArgVal", "ter:NoProfile", "No profile", "The requested profile does not exist");
+         return -1;
+@@ -837,7 +829,7 @@ int media_get_stream_uri()
+             return -2;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[0].url, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[0].url, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[0].url);
+         }
+         // Escape html chars
+@@ -859,7 +851,7 @@ int media_get_stream_uri()
+             return -3;
+         }
+ 
+-        if (sprintf(line, service_ctx.profiles[1].url, address) < 0) {
++        if (sprintf(line, service_ctx.profiles[1].url, service_ctx.address_url) < 0) {
+             strcpy(line, service_ctx.profiles[1].url);
+         }
+         // Escape html chars
+diff --git a/onvif_simple_server.conf.example b/onvif_simple_server.conf.example
+index 100951a..6653f2c 100644
+--- a/onvif_simple_server.conf.example
++++ b/onvif_simple_server.conf.example
+@@ -3,7 +3,7 @@ manufacturer=Manufacturer
+ firmware_ver=0.0.1
+ hardware_id=HWID
+ serial_num=SN1234567890
+-ifs=wlan0
++#ifs=wlan0  # optional: override interface (auto-detected from client address if omitted)
+ port=8080
+ scope=onvif://www.onvif.org/Profile/Streaming
+ scope=onvif://www.onvif.org/Profile/T
+diff --git a/onvif_simple_server.h b/onvif_simple_server.h
+index 143a5fc..7261c1f 100644
+--- a/onvif_simple_server.h
++++ b/onvif_simple_server.h
+@@ -116,7 +116,9 @@ typedef struct {
+     char *serial_num;
+     char *hardware_id;
+ 
+-    char device_uuid[37];   /* stable MAC-based UUID v5, or random fallback */
++    char device_uuid[37];   /* stable MAC-based UUID v5 */
++    char address[46];       /* resolved local IP (plain, no scope ID) */
++    char address_url[48];   /* URL-safe: IPv6 wrapped in [...] */
+ 
+     char *ifs;
+ 
+diff --git a/onvif_simple_server.json.example b/onvif_simple_server.json.example
+index f98000a..865ac7c 100644
+--- a/onvif_simple_server.json.example
++++ b/onvif_simple_server.json.example
+@@ -4,7 +4,6 @@
+     "firmware_ver": "0.0.1",
+     "hardware_id": "HWID",
+     "serial_num": "SN1234567890",
+-    "ifs": "wlan0",
+     "port": 8080,
+     "scopes": [
+         "onvif://www.onvif.org/Profile/Streaming",
+diff --git a/utils.c b/utils.c
+index d4e70a9..ceb3668 100644
+--- a/utils.c
++++ b/utils.c
+@@ -1142,6 +1142,139 @@ int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6])
+     return (found[0] == '\0') ? -1 : get_mac_by_ifname(found, mac_out);
+ }
+ 
++/* Find interface name owning addr_str (IPv4 or IPv6, scope ID stripped). */
++int get_ifname_by_addr(const char *addr_str, char *ifname, size_t len)
++{
++    char clean[INET6_ADDRSTRLEN];
++    strncpy(clean, addr_str, sizeof(clean) - 1);
++    clean[sizeof(clean) - 1] = '\0';
++    char *pct = strchr(clean, '%');
++    const char *scope_if = pct ? pct + 1 : NULL;
++    if (pct) *pct = '\0';
++
++    if (scope_if && scope_if[0]) {
++        strncpy(ifname, scope_if, len - 1);
++        ifname[len - 1] = '\0';
++        return 0;
++    }
++
++    int is_v6 = (strchr(clean, ':') != NULL);
++    struct ifaddrs *ifap, *ifa;
++    char found[IFNAMSIZ] = {0};
++
++    if (getifaddrs(&ifap) < 0) return -1;
++    for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
++        if (!ifa->ifa_addr) continue;
++        char buf[INET6_ADDRSTRLEN];
++        if (!is_v6 && ifa->ifa_addr->sa_family == AF_INET) {
++            inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
++                      buf, sizeof(buf));
++            if (strcmp(buf, clean) == 0) { strncpy(found, ifa->ifa_name, IFNAMSIZ - 1); break; }
++        } else if (is_v6 && ifa->ifa_addr->sa_family == AF_INET6) {
++            inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr,
++                      buf, sizeof(buf));
++            if (strcmp(buf, clean) == 0) { strncpy(found, ifa->ifa_name, IFNAMSIZ - 1); break; }
++        }
++    }
++    freeifaddrs(ifap);
++    if (!found[0]) return -1;
++    strncpy(ifname, found, len - 1);
++    ifname[len - 1] = '\0';
++    return 0;
++}
++
++/* MAC lookup for IPv4 or IPv6 address (scope ID handled). */
++int get_mac_by_addr(const char *addr_str, uint8_t mac_out[6])
++{
++    char ifname[IFNAMSIZ];
++    if (get_ifname_by_addr(addr_str, ifname, sizeof(ifname)) != 0) return -1;
++    return get_mac_by_ifname(ifname, mac_out);
++}
++
++/* -------------------------------------------------------------------------
++ * Auto-detect the local address to use in ONVIF service URLs.
++ *
++ * Priority:
++ *   1. REMOTE_ADDR is loopback (local proxy) → WSD multicast connect trick
++ *   2. REMOTE_ADDR is a real client         → connect trick to REMOTE_ADDR
++ *
++ * Sets local_addr to a plain IP string (no scope ID — safe for URLs).
++ * ---------------------------------------------------------------------- */
++#define WSD_MCAST_V4  "239.255.255.250"
++#define WSD_MCAST_V6  "ff02::c"
++#define WSD_PROBE_PORT 3702
++
++static int connect_trick_v4(const char *dst_ip, char *local, size_t len)
++{
++    struct sockaddr_in dst = {0};
++    dst.sin_family = AF_INET;
++    inet_pton(AF_INET, dst_ip, &dst.sin_addr);
++    dst.sin_port = htons(WSD_PROBE_PORT);
++
++    int fd = socket(AF_INET, SOCK_DGRAM, 0);
++    if (fd < 0) return -1;
++    if (connect(fd, (struct sockaddr *)&dst, sizeof(dst)) < 0) { close(fd); return -1; }
++    struct sockaddr_in src = {0};
++    socklen_t src_len = sizeof(src);
++    getsockname(fd, (struct sockaddr *)&src, &src_len);
++    close(fd);
++    if (src.sin_addr.s_addr == htonl(INADDR_ANY)) return -1;
++    inet_ntop(AF_INET, &src.sin_addr, local, len);
++    return 0;
++}
++
++static int connect_trick_v6(const char *dst_ip, unsigned int scope_id,
++                             char *local, size_t len)
++{
++    struct sockaddr_in6 dst = {0};
++    dst.sin6_family = AF_INET6;
++    inet_pton(AF_INET6, dst_ip, &dst.sin6_addr);
++    dst.sin6_port    = htons(WSD_PROBE_PORT);
++    dst.sin6_scope_id = scope_id;
++
++    int fd = socket(AF_INET6, SOCK_DGRAM, 0);
++    if (fd < 0) return -1;
++    if (connect(fd, (struct sockaddr *)&dst, sizeof(dst)) < 0) { close(fd); return -1; }
++    struct sockaddr_in6 src = {0};
++    socklen_t src_len = sizeof(src);
++    getsockname(fd, (struct sockaddr *)&src, &src_len);
++    close(fd);
++    if (IN6_IS_ADDR_UNSPECIFIED(&src.sin6_addr)) return -1;
++    inet_ntop(AF_INET6, &src.sin6_addr, local, len);
++    return 0;
++}
++
++int detect_local_address(const char *remote_addr, char *local_addr, size_t len)
++{
++    /* Strip IPv6 scope ID; remember interface for scoped connect */
++    char clean[INET6_ADDRSTRLEN];
++    strncpy(clean, remote_addr, sizeof(clean) - 1);
++    clean[sizeof(clean) - 1] = '\0';
++    char *pct = strchr(clean, '%');
++    unsigned int scope_id = 0;
++    if (pct) {
++        scope_id = if_nametoindex(pct + 1);
++        *pct = '\0';
++    }
++
++    int is_v6      = (strchr(clean, ':') != NULL);
++    int is_loopback = is_v6 ? (strcmp(clean, "::1") == 0)
++                             : (strncmp(clean, "127.", 4) == 0);
++
++    if (is_loopback) {
++        /* Local proxy in front: use WSD multicast to find real outbound IF */
++        if (connect_trick_v4(WSD_MCAST_V4, local_addr, len) == 0) return 0;
++        if (connect_trick_v6(WSD_MCAST_V6, 0, local_addr, len) == 0) return 0;
++        return -1;
++    }
++
++    /* Real client: ask kernel which source address it would use */
++    if (is_v6)
++        return connect_trick_v6(clean, scope_id, local_addr, len);
++    else
++        return connect_trick_v4(clean, local_addr, len);
++}
++
+ void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6])
+ {
+     char name[32];
+diff --git a/utils.h b/utils.h
+index f80a758..cef3d62 100644
+--- a/utils.h
++++ b/utils.h
+@@ -100,6 +100,9 @@ time_t from_iso_date(const char *date);
+ int gen_uuid(char *g_uuid);
+ int get_mac_by_ifname(const char *if_name, uint8_t mac_out[6]);
+ int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6]);
++int get_ifname_by_addr(const char *addr_str, char *ifname, size_t len);
++int get_mac_by_addr(const char *addr_str, uint8_t mac_out[6]);
++int detect_local_address(const char *remote_addr, char *local_addr, size_t len);
+ void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6]);
+ int get_from_query_string(char **ret, int *ret_size, char *par);
+ int set_video_codec(char *buffer, int buffer_len, int codec, int ver);
+-- 
+2.53.0.windows.1
+

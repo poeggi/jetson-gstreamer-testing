@@ -1,0 +1,79 @@
+From 6dbad9cb7f741f3ab380e2af6914284620e2c1b2 Mon Sep 17 00:00:00 2001
+From: poeggi <48416618+poeggi@users.noreply.github.com>
+Date: Fri, 12 Jun 2026 16:55:20 +0800
+Subject: [PATCH 08/12] fix: remove random UUID fallback -- fail hard if MAC
+ unavailable
+
+---
+ conf.c              | 22 ++++++++++------------
+ wsd_simple_server.c | 11 +++++------
+ 2 files changed, 15 insertions(+), 18 deletions(-)
+
+diff --git a/conf.c b/conf.c
+index 1dd0716..83ae792 100644
+--- a/conf.c
++++ b/conf.c
+@@ -623,13 +623,12 @@ int process_conf_file(char *file)
+ 
+     {
+         uint8_t mac[6] = {0};
+-        if (get_mac_by_ifname(service_ctx.ifs, mac) == 0) {
+-            gen_uuid_v5_mac(service_ctx.device_uuid, mac);
+-            log_info("Device UUID (stable, MAC-based): %s", service_ctx.device_uuid);
+-        } else {
+-            gen_uuid(service_ctx.device_uuid);
+-            log_info("Device UUID (random, MAC unavailable): %s", service_ctx.device_uuid);
++        if (get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
++            log_fatal("Cannot get MAC address from interface %s -- cannot generate stable device UUID.", service_ctx.ifs);
++            exit(EXIT_FAILURE);
+         }
++        gen_uuid_v5_mac(service_ctx.device_uuid, mac);
++        log_info("Device UUID: %s", service_ctx.device_uuid);
+     }
+ 
+     return 0;
+@@ -845,13 +844,12 @@ int process_json_conf_file(char *file)
+ 
+     {
+         uint8_t mac[6] = {0};
+-        if (service_ctx.ifs && get_mac_by_ifname(service_ctx.ifs, mac) == 0) {
+-            gen_uuid_v5_mac(service_ctx.device_uuid, mac);
+-            log_info("Device UUID (stable, MAC-based): %s", service_ctx.device_uuid);
+-        } else {
+-            gen_uuid(service_ctx.device_uuid);
+-            log_info("Device UUID (random, MAC unavailable): %s", service_ctx.device_uuid);
++        if (!service_ctx.ifs || get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
++            log_fatal("Cannot get MAC address from interface %s -- cannot generate stable device UUID.", service_ctx.ifs ? service_ctx.ifs : "(null)");
++            exit(EXIT_FAILURE);
+         }
++        gen_uuid_v5_mac(service_ctx.device_uuid, mac);
++        log_info("Device UUID: %s", service_ctx.device_uuid);
+     }
+ 
+     // Print debug
+diff --git a/wsd_simple_server.c b/wsd_simple_server.c
+index 1bdd052..c638666 100644
+--- a/wsd_simple_server.c
++++ b/wsd_simple_server.c
+@@ -637,13 +637,12 @@ int main(int argc, char **argv)
+         uint8_t mac[6] = {0};
+         int mac_ok = (if_name ? get_mac_by_ifname(if_name, mac)
+                               : get_mac_by_ip(address, mac)) == 0;
+-        if (mac_ok) {
+-            gen_uuid_v5_mac(uuid, mac);
+-            log_info("Device UUID (stable, MAC-based): %s", uuid);
+-        } else {
+-            gen_uuid(uuid);
+-            log_info("Device UUID (random, MAC unavailable): %s", uuid);
++        if (!mac_ok) {
++            log_fatal("Cannot get MAC address for interface -- cannot generate stable device UUID.");
++            exit(EXIT_FAILURE);
+         }
++        gen_uuid_v5_mac(uuid, mac);
++        log_info("Device UUID: %s", uuid);
+     }
+ 
+     /* ---- IPv4 socket --------------------------------------------------- */
+-- 
+2.53.0.windows.1
+
