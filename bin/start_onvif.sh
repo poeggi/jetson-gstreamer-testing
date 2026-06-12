@@ -61,9 +61,8 @@ model=Jetson-Basler-4K
 manufacturer=Custom
 firmware_ver=0.1
 hardware_id=JetsonOrinNX
-serial_num=000000000001
+serial_num=${ONVIF_SERIAL:-SN1234567890}
 
-ifs=${ONVIF_INTERFACE}
 port=${ONVIF_PORT}
 
 scope=onvif://www.onvif.org/Profile/Streaming

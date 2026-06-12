@@ -676,20 +676,14 @@ int main(int argc, char **argv)  {
     // Generate stable UUID from MAC address (WS-Discovery 1.1: EPR MUST be stable across restarts)
     {
         uint8_t mac[6] = {0};
-        int mac_ok;
-
-        if (if_name != NULL)
-            mac_ok = (get_mac_by_ifname(if_name, mac) == 0);
-        else
-            mac_ok = (get_mac_by_ip(address, mac) == 0);
-
-        if (mac_ok) {
-            gen_uuid_v5_mac(uuid, mac);
-            log_info("Device UUID (stable, MAC-based): %s", uuid);
-        } else {
-            gen_uuid(uuid);
-            log_info("Device UUID (random, MAC unavailable): %s", uuid);
+        if ((if_name ? get_mac_by_ifname(if_name, mac)
+                     : get_mac_by_ip(address, mac)) != 0) {
+            log_fatal("Cannot get MAC address for interface -- cannot generate stable device UUID.");
+            fclose(fLog);
+            exit(EXIT_FAILURE);
         }
+        gen_uuid_v5_mac(uuid, mac);
+        log_info("Device UUID: %s", uuid);
     }
 
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {

@@ -948,6 +948,16 @@ _ONVIF_BIN=$(_find_bin onvif_simple_server)
 _WSD_BIN=$(_find_bin wsd_simple_server)
 _LIGHTTPD_BIN=$(_find_bin lighttpd)
 
+_ONVIF_SERIAL="${ONVIF_SERIAL:-SN1234567890}"
+_SERIAL_FIX="_s=\$(cat /sys/bus/platform/devices/*/fuse/serial_number 2>/dev/null | head -1 | tr -d '[:space:]'); [[ -n \"\$_s\" ]] && sed -i \"s|^ONVIF_SERIAL=.*|ONVIF_SERIAL=\$_s|\" \"${_CONF}\""
+if [[ "$_ONVIF_SERIAL" == "SN1234567890" ]]; then
+  warn "ONVIF serial_num is the default 'SN1234567890' -- NVR cannot distinguish units"
+  warn "     Persist : ${_SERIAL_FIX}"
+  autofix_persist "Set ONVIF_SERIAL from Jetson board serial in stream.conf" "${_SERIAL_FIX}"
+else
+  ok "ONVIF serial_num: ${_ONVIF_SERIAL}"
+fi
+
 if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
   ok "ONVIF: onvif_simple_server, wsd_simple_server, lighttpd all present"
 

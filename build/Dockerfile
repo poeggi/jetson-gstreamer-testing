@@ -14,19 +14,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc libc6-dev make git ca-certificates wget xz-utils file \
+        libjson-c-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ARG TAG=0.0.4
-RUN git clone --depth 1 --branch "${TAG}" \
-    https://github.com/roleoroleo/onvif_simple_server /src
+# Clone our fork which includes UUID v5, dual-stack WSD, and auto-detected address.
+ARG BRANCH=feature/onvif-mac-uuid
+RUN git clone --depth 1 --branch "${BRANCH}" \
+    https://github.com/poeggi/onvif_simple_server /src
 
 WORKDIR /src
 
-# Apply local patches: copy our modified sources over the upstream cloned files.
-# bin/sources/ contains patched versions of upstream files (see bin/sources/*.patch for diffs).
-COPY bin/sources/wsd_simple_server.c /src/wsd_simple_server.c
-
-# Build libtomcrypt (bundled dependency required by the Makefile).
+# Build bundled libtomcrypt as a static library (provides SHA-1 / base64 for utils.c).
 RUN cd /src/extras && \
     wget -q https://github.com/libtom/libtomcrypt/releases/download/v1.18.2/crypt-1.18.2.tar.xz && \
     tar Jxf crypt-1.18.2.tar.xz && \
@@ -36,7 +34,8 @@ RUN cd /src/extras && \
 
 RUN make -C /src \
         CC=gcc STRIP=strip \
-        LIBS_O="-static -Wl,--gc-sections extras/libtomcrypt/libtomcrypt.a -lpthread -lrt" \
+        INCLUDE="-Iextras/libtomcrypt/src/headers -ffunction-sections -fdata-sections" \
+        LIBS_O="-static -Wl,--gc-sections extras/libtomcrypt/libtomcrypt.a -ljson-c -lz -lpthread -lrt" \
         LIBS_W="-static -Wl,--gc-sections" \
         onvif_simple_server wsd_simple_server
 
