@@ -450,7 +450,7 @@ else
   echo "         SOLUTION: Configure camera pixel format in pylon Viewer"
   echo "           - Launch: /opt/pylon/bin/pylonviewer"
   echo "           - Connect to camera"
-  echo "           - Camera Features → PixelFormat → select YCbCr422_8 (= YUY2)"
+  echo "           - Camera Features -> PixelFormat -> select YCbCr422_8 (= YUY2)"
   echo "           - Save camera settings"
   echo "         After configuring, re-run diagnose_pipeline.sh"
   FAIL=$(( FAIL + 1 ))

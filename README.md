@@ -3,7 +3,7 @@
 **Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 5.x / 6.x)\
 &nbsp;|&nbsp; **Script:** `send_stream.sh`
 
-Zero-copy GStreamer pipeline: Basler USB camera → NVENC hardware encode → RTSP.
+Zero-copy GStreamer pipeline: Basler USB camera -> NVENC hardware encode -> RTSP.
 Includes `check_system.sh` for pre-flight checks and optional ONVIF server for NVR auto-discovery.
 
 ---
@@ -70,20 +70,20 @@ To rebuild the binaries from source (Windows): `.\build-onvif\build.ps1`
 | Property | Value |
 |----------|-------|
 | Sensor | 1/1.1" Sony IMX253, global shutter |
-| Max resolution | 4096 × 3000 (12.3 MP); **pipeline uses 4096 × 2160** (NVENC H.265 limit) |
+| Max resolution | 4096 x 3000 (12.3 MP); **pipeline uses 4096 x 2160** (NVENC H.265 limit) |
 | Interface | USB 3.1 Gen1 - both camera and Orin NX are Gen1 only (~450 MB/s ceiling) |
 | Max FPS | 30 fps hardware-fixed at full resolution |
 | Pixel format | Must be `YCbCr422_8` (YUY2) - set in pylon Viewer, stored in camera |
 
-**Why 4096×2160:** Orin NX NVENC supports H.265 up to Level 5.1 (~8.9 MP/frame). 4096×3000 = 12.3 MP exceeds this. 4096×2160 = 8.8 MP is the maximum encodable resolution.
+**Why 4096x2160:** Orin NX NVENC supports H.265 up to Level 5.1 (~8.9 MP/frame). 4096x3000 = 12.3 MP exceeds this. 4096x2160 = 8.8 MP is the maximum encodable resolution.
 
-**USB bandwidth:** Nominal YUY2 at 4096×2160/30fps = ~530 MB/s - exceeds the Gen1 ceiling but works in practice. The camera's Compression Beyond (hardware lossless FPGA compression) reduces actual USB payload by 2–3×. Enable in pylon Viewer: `ImageCompressionMode=BaslerCompressionBeyond`, `ImageCompressionRateOption=Lossless`.
+**USB bandwidth:** Nominal YUY2 at 4096x2160/30fps = ~530 MB/s - exceeds the Gen1 ceiling but works in practice. The camera's Compression Beyond (hardware lossless FPGA compression) reduces actual USB payload by 2-3x. Enable in pylon Viewer: `ImageCompressionMode=BaslerCompressionBeyond`, `ImageCompressionRateOption=Lossless`.
 
 ---
 
 ## 2 - Bitrate Reference
 
-NVENC hardware encoding lacks B-frames and multi-pass, so it needs ~20–30% more bits than software encoders for equivalent quality.
+NVENC hardware encoding lacks B-frames and multi-pass, so it needs ~20-30% more bits than software encoders for equivalent quality.
 
 stream.conf defaults match the Recommended column.
 
@@ -91,33 +91,33 @@ stream.conf defaults match the Recommended column.
 
 | Resolution | FPS | Streaming floor | Recommended | Quality ceiling |
 |------------|-----|-----------------|-------------|-----------------|
-| 4096 × 2160 | 30 | 16 Mbps | **20 Mbps** | 28 Mbps |
-| 1920 × 1080 | 30 |  4 Mbps |  **6 Mbps** |  8 Mbps |
+| 4096 x 2160 | 30 | 16 Mbps | **20 Mbps** | 28 Mbps |
+| 1920 x 1080 | 30 |  4 Mbps |  **6 Mbps** |  8 Mbps |
 
 ### H.264 High Profile
 
 | Resolution | FPS | Streaming floor | Recommended | Quality ceiling |
 |------------|-----|-----------------|-------------|-----------------|
-| 4096 × 2160 | 30 | 25 Mbps | **35 Mbps** | 45 Mbps |
-| 1920 × 1080 | 30 |  6 Mbps |  **9 Mbps** | 14 Mbps |
+| 4096 x 2160 | 30 | 25 Mbps | **35 Mbps** | 45 Mbps |
+| 1920 x 1080 | 30 |  6 Mbps |  **9 Mbps** | 14 Mbps |
 
 ### Rate control and keyframe interval
 
 **CBR** (`control-rate=1`) - recommended for RTSP; predictable network buffer usage.
-**VBR** (`control-rate=2`) - better perceived quality; can spike 2–3× above average - use on private LAN only.
+**VBR** (`control-rate=2`) - better perceived quality; can spike 2-3x above average - use on private LAN only.
 
-**Keyframe interval** default 15 frames (2 IDR/sec at 30fps). Shorter = faster stream join and loss recovery. Longer = lower overhead; avoid >2× framerate over WAN.
+**Keyframe interval** default 15 frames (2 IDR/sec at 30fps). Shorter = faster stream join and loss recovery. Longer = lower overhead; avoid >2x framerate over WAN.
 
 ---
 
 ## 3 - Recommended Configurations
 
-Both camera and Orin NX are USB 3.1 Gen1 only. Nominal YUY2 bandwidth at 4096×2160/30fps (~530 MB/s) exceeds the theoretical ceiling but works - Compression Beyond likely reduces actual USB payload to ~175–265 MB/s.
+Both camera and Orin NX are USB 3.1 Gen1 only. Nominal YUY2 bandwidth at 4096x2160/30fps (~530 MB/s) exceeds the theoretical ceiling but works - Compression Beyond likely reduces actual USB payload to ~175-265 MB/s.
 
 | Goal | Resolution | FPS | Nominal BW | Notes |
 |------|------------|-----|------------|-------|
-| **4K DCI (default)** | 4096 × 2160 | 30 | ~530 MB/s | Confirmed working (Compression Beyond likely active) |
-| 4K UHD | 3840 × 2160 | 30 | ~498 MB/s | Exceeds Gen1 ceiling (~450 MB/s) - requires Compression Beyond |
+| **4K DCI (default)** | 4096 x 2160 | 30 | ~530 MB/s | Confirmed working (Compression Beyond likely active) |
+| 4K UHD | 3840 x 2160 | 30 | ~498 MB/s | Exceeds Gen1 ceiling (~450 MB/s) - requires Compression Beyond |
 
 This camera is hardware-fixed at 30 fps maximum - higher fps is not achievable at any resolution.
 
@@ -127,19 +127,19 @@ This camera is hardware-fixed at 30 fps maximum - higher fps is not achievable a
 
 | Format | NVMM input | Pipeline path |
 |--------|------------|---------------|
-| YCbCr422_8 (YUY2) | YES | **Default** - pylonsrc NVMM → nvvidconv → NVENC |
+| YCbCr422_8 (YUY2) | YES | **Default** - pylonsrc NVMM -> nvvidconv -> NVENC |
 | GRAY8 | YES | Mono path (not confirmed working) |
 | BGR8 / RGB8 | NO | VIC hardware rejects packed RGB in NVMM mode |
 
-**nvvidconv** converts YUY2 → NV12 via the VIC hardware block (`nvbuf-memory-type=4`). All downstream elements operate on NVMM buffers - zero CPU copies.
+**nvvidconv** converts YUY2 -> NV12 via the VIC hardware block (`nvbuf-memory-type=4`). All downstream elements operate on NVMM buffers - zero CPU copies.
 
-**Pixel format** must be configured in pylon Viewer (`PixelFormat → YCbCr422_8`) and is stored persistently in the camera. Without this, pylonsrc defaults to GRAY8 (monochrome).
+**Pixel format** must be configured in pylon Viewer (`PixelFormat -> YCbCr422_8`) and is stored persistently in the camera. Without this, pylonsrc defaults to GRAY8 (monochrome).
 
 ---
 
 ## 5 - RTSP Client (Low Latency)
 
-Pipeline sender contributes ~70–100 ms (camera exposure + NVENC). Most clients add a jitter buffer on top.
+Pipeline sender contributes ~70-100 ms (camera exposure + NVENC). Most clients add a jitter buffer on top.
 
 ### VLC
 
