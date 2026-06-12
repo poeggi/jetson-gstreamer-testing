@@ -2,7 +2,7 @@
 # ==============================================================================
 # start_onvif.sh -- standalone start/stop for the ONVIF server stack.
 # Reads settings from stream.conf (same as send_stream.sh).
-# Usage: ./start_onvif.sh [--stop]
+# Usage: ./bin/start_onvif.sh [--stop]
 # ==============================================================================
 
 set -euo pipefail

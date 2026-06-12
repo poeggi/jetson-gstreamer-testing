@@ -2,7 +2,7 @@
 # View an RTSP stream with low-latency VLC settings.
 # Note: caching below 200ms may not work reliably with H.265 (VLC drops frames).
 #
-# Usage: ./view_stream.sh [main|sub] [host] [port] [caching_ms]
+# Usage: ./vlc-helpers/view_stream.sh [main|sub] [host] [port] [caching_ms]
 #   main  -- 4K H.265 stream  (default)
 #   sub   -- 1080p H.264 stream
 

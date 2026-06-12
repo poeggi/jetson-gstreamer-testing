@@ -2,19 +2,16 @@
 # Uses QEMU emulation via Docker's --platform flag -- requires Docker Desktop with
 # multi-arch support (enabled by default on Windows/Mac with Docker Desktop 4+).
 #
-# Usage: see build-onvif.ps1 in the repo root.
+# Usage: see build-onvif/build.ps1
 #
-# Produces statically linked binaries -- no runtime library dependencies on the Jetson.
+# Produces dynamically linked binaries -- depends only on libc (always present on Jetson).
 
 FROM --platform=linux/arm64 ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc make git ca-certificates \
-        libtomcrypt-dev \
-        zlib1g-dev \
-        libjson-c-dev \
+        gcc make git ca-certificates wget xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 ARG TAG=0.0.4
@@ -23,9 +20,16 @@ RUN git clone --depth 1 --branch "${TAG}" \
 
 WORKDIR /src
 
-# Makefile.static links all dependencies statically so the binary runs on any
-# JetPack version without requiring matching library versions on the Jetson.
-RUN make -f Makefile.static
+# Build libtomcrypt (bundled dependency required by the Makefile).
+RUN cd /src/extras && \
+    wget -q https://github.com/libtom/libtomcrypt/releases/download/v1.18.2/crypt-1.18.2.tar.xz && \
+    tar Jxf crypt-1.18.2.tar.xz && \
+    ln -sf libtomcrypt-1.18.2 libtomcrypt && \
+    cd libtomcrypt && \
+    CFLAGS="-DLTC_NOTHING -DLTC_SHA1 -DLTC_BASE64" make -s libtomcrypt.a
+
+RUN make -C /src onvif_simple_server wsd_simple_server && \
+    strip /src/onvif_simple_server /src/wsd_simple_server
 
 RUN file onvif_simple_server wsd_simple_server && \
     ls -lh onvif_simple_server wsd_simple_server

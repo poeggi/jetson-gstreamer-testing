@@ -8,10 +8,10 @@
 # Subsequent runs are fast (image and layer cache reused).
 #
 # Usage:
-#   .\build-onvif.ps1              # builds tag 0.0.4 (default)
-#   .\build-onvif.ps1 -Tag 0.0.3  # build a specific release tag
+#   .\build-onvif\build.ps1              # builds tag 0.0.4 (default)
+#   .\build-onvif\build.ps1 -Tag 0.0.3  # build a specific release tag
 #
-# Output: bin/onvif_simple_server  and  bin/wsd_simple_server  (aarch64, static)
+# Output: bin/onvif_simple_server  and  bin/wsd_simple_server  (linux/arm64, depends only on libc)
 # After building: git add bin/onvif_simple_server bin/wsd_simple_server && git commit
 
 param(
@@ -20,7 +20,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Root    = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root    = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $BinDir  = Join-Path $Root "bin"
 $DockerfileDir = Join-Path $Root "build-onvif"
 $ImageTag = "jetson-onvif-build:$Tag"

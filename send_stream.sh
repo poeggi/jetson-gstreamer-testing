@@ -17,12 +17,12 @@
 #   --sub-h264            override SUB encoder to H.264
 #   --sub-h265            override SUB encoder to H.265
 #
-# Pipeline (single stream -- MAIN only, default):
+# Pipeline (single stream -- MAIN only, use --no-sub):
 #
 #  pylonsrc -> nvvidconv -> enc -> queue -> parse -> rtspsink
 #  [YUY2/NVMM] [NV12/NVMM]         [4K]              [/main]
 #
-# Pipeline (dual stream via tee -- SUB_ENABLED=true):
+# Pipeline (dual stream via tee -- default, SUB_ENABLED=true):
 #
 #  pylonsrc -> nvvidconv -> tee
 #  [YUY2/NVMM] [NV12/NVMM]   |
