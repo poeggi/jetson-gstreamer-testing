@@ -861,6 +861,14 @@ fi
 section "RTSP and ONVIF infrastructure"
 
 if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
+  # Verify config file is present (moved from repo root to blueprints/ in v0.7+)
+  _MEDIAMTX_CONF="${SCRIPT_DIR}/blueprints/mediamtx.yml"
+  if [[ -f "$_MEDIAMTX_CONF" ]]; then
+    ok "MediaMTX config: blueprints/mediamtx.yml"
+  else
+    fail "MediaMTX config not found: blueprints/mediamtx.yml"
+  fi
+
   # Find the MediaMTX binary. The pipeline script will start it automatically
   # if not already running, so we verify it is findable and actually starts.
   RTSP_HOST="${RTSP_HOST:-127.0.0.1}"
@@ -888,7 +896,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
         ok "MediaMTX already running at ${RTSP_HOST}:${RTSP_PORT}"
       else
         echo "  [....] Starting MediaMTX briefly to verify..."
-        "$MEDIAMTX_BIN" >/dev/null 2>&1 &
+        "$MEDIAMTX_BIN" "${SCRIPT_DIR}/blueprints/mediamtx.yml" >/dev/null 2>&1 &
         MEDIAMTX_CHECK_PID=$!
         STARTED=0
         for i in 1 2 3 4 5; do
