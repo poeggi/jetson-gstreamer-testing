@@ -4,7 +4,7 @@
 #
 # Usage: see build-onvif/build.ps1
 #
-# Produces dynamically linked binaries -- depends only on libc (always present on Jetson).
+# Produces statically linked binaries -- no runtime library dependencies, runs on any JetPack version.
 
 FROM --platform=linux/arm64 ubuntu:22.04
 
@@ -28,8 +28,11 @@ RUN cd /src/extras && \
     cd libtomcrypt && \
     CFLAGS="-DLTC_NOTHING -DLTC_SHA1 -DLTC_BASE64" make -s libtomcrypt.a
 
-RUN make -C /src onvif_simple_server wsd_simple_server && \
-    strip /src/onvif_simple_server /src/wsd_simple_server
+RUN make -C /src \
+        CC=gcc STRIP=strip \
+        LIBS_O="-static -Wl,--gc-sections extras/libtomcrypt/libtomcrypt.a -lpthread -lrt" \
+        LIBS_W="-static -Wl,--gc-sections" \
+        onvif_simple_server wsd_simple_server
 
 RUN file onvif_simple_server wsd_simple_server && \
     ls -lh onvif_simple_server wsd_simple_server

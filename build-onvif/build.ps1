@@ -11,7 +11,7 @@
 #   .\build-onvif\build.ps1              # builds tag 0.0.4 (default)
 #   .\build-onvif\build.ps1 -Tag 0.0.3  # build a specific release tag
 #
-# Output: bin/onvif_simple_server  and  bin/wsd_simple_server  (linux/arm64, depends only on libc)
+# Output: bin/onvif_simple_server  and  bin/wsd_simple_server  (linux/arm64, statically linked)
 # After building: git add bin/onvif_simple_server bin/wsd_simple_server && git commit
 
 param(

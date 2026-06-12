@@ -3,7 +3,7 @@
 # send_stream.sh
 #
 # Camera  : Basler a2A4096-30ucPRO  (Sony IMX253, 12.29 MP, global shutter)
-# Target  : NVIDIA Jetson Orin NX, JetPack 5.x / 6.x
+# Target  : NVIDIA Jetson Orin NX, JetPack 6.x or later
 #
 # Reads configuration from stream.conf (same directory).
 # Supports one or two simultaneous encoding streams via GStreamer tee.

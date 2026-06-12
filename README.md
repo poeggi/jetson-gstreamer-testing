@@ -1,6 +1,6 @@
 # Basler a2A4096-30ucPRO -- GStreamer Pipeline
 
-**Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 5.x / 6.x)\
+**Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 6.x or later)\
 &nbsp;|&nbsp; **Script:** `send_stream.sh`
 
 Zero-copy GStreamer pipeline: Basler USB camera -> NVENC hardware encode -> RTSP.
@@ -57,11 +57,12 @@ Add the Jetson as an IP camera in your NVR - it will appear automatically via WS
 
 Can be configured or disabled in `stream.conf` (`ONVIF_ENABLED`, `ONVIF_PORT`, `ONVIF_USER`/`ONVIF_PASSWORD`).
 
-**Prerequisites:** ARM64 binaries are included in `bin/` (cross-compiled for Jetson Orin NX). Only lighttpd needs installing:
+**Prerequisites:** Statically linked ARM64 binaries are included in `bin/` (no runtime library
+dependencies -- run on any JetPack version). Only lighttpd needs installing:
 ```bash
 sudo apt install lighttpd
 ```
-To rebuild the binaries from source (Windows): `.\build-onvif\build.ps1`
+To rebuild the binaries from source (Windows, requires Docker): `.\build-onvif\build.ps1`
 
 ---
 
