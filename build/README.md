@@ -8,10 +8,25 @@ server stack for linux/arm64 (Jetson Orin NX).
 | Binary | Source | Version |
 |--------|--------|---------|
 | `onvif_simple_server` | [roleoroleo/onvif_simple_server](https://github.com/roleoroleo/onvif_simple_server) | 0.0.4 (default) |
-| `wsd_simple_server` | same repo | 0.0.4 (default) |
+| `wsd_simple_server` | same repo, **patched** (see below) | master + local patch |
 
 Both are part of the same upstream project and built from the same Makefile in one pass.
 Output goes to `../bin/` (the repo-level `bin/` directory).
+
+### wsd_simple_server patch
+
+`wsd_simple_server` is built from a **locally patched** version of the upstream source.
+The patch adds automatic network interface detection: instead of requiring `-i INTERFACE`,
+the binary uses a UDP connect trick to query the kernel's routing table and determines the
+correct outbound interface and IP address automatically. `-i` is still accepted to force a
+specific interface on multi-homed systems.
+
+The patch is tracked in `bin/sources/wsd_simple_server.patch` and the full patched source
+in `bin/sources/wsd_simple_server.c`. A pull request against upstream is open at:
+https://github.com/roleoroleo/onvif_simple_server/pull/42
+
+The `Dockerfile` copies our patched source over the upstream clone before building, so the
+installed binary in `bin/wsd_simple_server` already includes this change.
 
 ### Linking
 

@@ -50,7 +50,6 @@ do_start() {
   do_stop 2>/dev/null || true
 
   "$wsd_bin" \
-    -i "$ONVIF_INTERFACE" \
     -x "http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service" \
     -p "$WSD_PID_FILE" \
     >/dev/null 2>&1 &

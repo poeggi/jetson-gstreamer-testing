@@ -131,7 +131,6 @@ do_start() {
   [[ -n "$DEVICE_IP" ]] || die "Cannot determine IP for interface ${ONVIF_INTERFACE}"
 
   "$(_find_bin wsd_simple_server)" \
-    -i "$ONVIF_INTERFACE" \
     -x "http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service" \
     -p "$WSD_PID_FILE" \
     >/dev/null 2>&1 &

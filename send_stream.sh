@@ -242,17 +242,16 @@ EOF
       "$_LIGHTTPD_BIN" -D -f "$ONVIF_LIGHTTPD_CONF" &
       LIGHTTPD_PID=$!
 
-      _ONVIF_IF="${ONVIF_INTERFACE:-eth0}"
-      _ONVIF_IP=$(ip -4 addr show "$_ONVIF_IF" 2>/dev/null \
+      _ONVIF_IP=$(ip -4 addr show "${ONVIF_INTERFACE}" 2>/dev/null \
         | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
 
       if [[ -n "$_ONVIF_IP" ]]; then
-        "$_WSD_BIN" -i "$_ONVIF_IF" \
+        "$_WSD_BIN" \
           -x "http://${_ONVIF_IP}:${ONVIF_PORT}/onvif/device_service" \
           >/dev/null 2>&1 &
         WSD_PID=$!
       else
-        echo "WARNING: Cannot determine IP for interface ${_ONVIF_IF} -- WS-Discovery skipped" >&2
+        echo "WARNING: Cannot determine IP for interface ${ONVIF_INTERFACE} -- WS-Discovery skipped" >&2
       fi
 
       ONVIF_WE_STARTED=1
