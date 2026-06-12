@@ -2,7 +2,7 @@
 # Uses QEMU emulation via Docker's --platform flag -- requires Docker Desktop with
 # multi-arch support (enabled by default on Windows/Mac with Docker Desktop 4+).
 #
-# Usage: see build-onvif/build.ps1
+# Usage: see build/build.ps1
 #
 # Produces statically linked binaries -- no runtime library dependencies, runs on any JetPack version.
 

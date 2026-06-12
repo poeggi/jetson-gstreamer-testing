@@ -36,7 +36,7 @@ die() { echo "ERROR: $1" >&2; exit 1; }
 check_deps() {
   for bin in onvif_simple_server wsd_simple_server lighttpd; do
     _find_bin "$bin" | grep -q . || \
-      die "$bin not found. Run ./build-onvif/build.ps1 (Windows) or see github.com/roleoroleo/onvif_simple_server"
+      die "$bin not found. Run ./build/build.ps1 (Windows) or see github.com/roleoroleo/onvif_simple_server"
   done
 }
 
