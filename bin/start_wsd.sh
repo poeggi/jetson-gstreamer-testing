@@ -16,15 +16,7 @@ CONF="${REPO_DIR}/stream.conf"
 source "$CONF"
 
 ONVIF_PORT="${ONVIF_PORT:-8080}"
-ONVIF_INTERFACE="${ONVIF_INTERFACE:-eth0}"
 WSD_PID_FILE="/tmp/wsd_simple_server.pid"
-
-_find_bin() {
-  local name="$1"
-  if [[ -x "${SCRIPT_DIR}/${name}" ]]; then echo "${SCRIPT_DIR}/${name}"
-  else command -v "$name" 2>/dev/null || true
-  fi
-}
 
 die() { echo "ERROR: $1" >&2; exit 1; }
 
@@ -39,24 +31,23 @@ do_stop() {
 }
 
 do_start() {
-  local wsd_bin
-  wsd_bin=$(_find_bin wsd_simple_server)
-  [[ -n "$wsd_bin" ]] || die "wsd_simple_server not found in bin/ or PATH"
-
-  DEVICE_IP=$(ip -4 addr show "$ONVIF_INTERFACE" 2>/dev/null \
-    | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
-  [[ -n "$DEVICE_IP" ]] || die "Cannot determine IP for interface ${ONVIF_INTERFACE}"
+  local wsd_bin="${SCRIPT_DIR}/wsd_simple_server" wsd_args
+  [[ -x "$wsd_bin" ]] || die "wsd_simple_server not found in bin/. Run bin/sources/cross-build-windows.ps1 (Windows) or bin/sources/build-on-device.sh (Jetson)"
 
   do_stop 2>/dev/null || true
 
-  "$wsd_bin" \
-    -x "http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service" \
-    -p "$WSD_PID_FILE" \
-    >/dev/null 2>&1 &
+  wsd_args=(
+    -x "http://%s:${ONVIF_PORT}/onvif/device_service"
+    -6 "http://[%s]:${ONVIF_PORT}/onvif/device_service"
+    -p "$WSD_PID_FILE"
+  )
+  # Pass explicit interface override only when set; otherwise wsd auto-detects
+  [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")
+  "$wsd_bin" "${wsd_args[@]}" >/dev/null 2>&1 &
 
   echo "wsd_simple_server started"
-  echo "  Interface : ${ONVIF_INTERFACE} (${DEVICE_IP})"
-  echo "  Advertising : http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service"
+  echo "  Interface : ${ONVIF_INTERFACE:-(auto-detected by wsd)}"
+  echo "  Advertising : http://<device-ip>:${ONVIF_PORT}/onvif/device_service"
 }
 
 case "${1:-}" in

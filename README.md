@@ -14,7 +14,7 @@ Includes `check_system.sh` for pre-flight checks and optional ONVIF server for N
 Edit **`stream.conf`** - all settings are documented there with sensible defaults.
 Two things to verify for your setup:
 - `CAMERA_SERIAL` - set if you have multiple Basler cameras (empty = auto-detect first)
-- `ONVIF_INTERFACE` - set to the interface facing your NVR (default `eth0`)
+- `ONVIF_INTERFACE` - network interface for WS-Discovery (empty = auto-detected by wsd_simple_server)
 
 ### Running
 ```bash

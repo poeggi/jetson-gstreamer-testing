@@ -15,29 +15,21 @@ CONF="${REPO_DIR}/stream.conf"
 source "$CONF"
 
 ONVIF_PORT="${ONVIF_PORT:-8080}"
-ONVIF_INTERFACE="${ONVIF_INTERFACE:-eth0}"
 
 LIGHTTPD_CONF="/tmp/lighttpd_onvif_standalone.conf"
 LIGHTTPD_PID_FILE="/tmp/lighttpd_onvif_standalone.pid"
 WSD_PID_FILE="/tmp/wsd_simple_server.pid"
 ONVIF_SERVER_CONF="/tmp/onvif_simple_server_${ONVIF_PORT}.conf"
 
-# Prefer bundled bin/ binary over system PATH
-_find_bin() {
-  local name="$1"
-  if [[ -x "${SCRIPT_DIR}/${name}" ]]; then echo "${SCRIPT_DIR}/${name}"
-  else command -v "$name" 2>/dev/null || true
-  fi
-}
-
-# ------------------------------------------------------------------------------
 die() { echo "ERROR: $1" >&2; exit 1; }
 
 check_deps() {
-  for bin in onvif_simple_server wsd_simple_server lighttpd; do
-    _find_bin "$bin" | grep -q . || \
-      die "$bin not found. Run bin/sources/cross-build-windows.ps1 (Windows) or bin/sources/build-on-device.sh (Jetson)"
+  for bin in onvif_simple_server wsd_simple_server; do
+    [[ -x "${SCRIPT_DIR}/${bin}" ]] || \
+      die "${bin} not found in bin/. Run bin/sources/cross-build-windows.ps1 (Windows) or bin/sources/build-on-device.sh (Jetson)"
   done
+  command -v lighttpd >/dev/null 2>&1 || \
+    die "lighttpd not found. Install: sudo apt install lighttpd"
 }
 
 # ------------------------------------------------------------------------------
@@ -102,8 +94,7 @@ EOF
 }
 
 generate_lighttpd_conf() {
-  local onvif_bin
-  onvif_bin=$(_find_bin onvif_simple_server)
+  local onvif_bin="${SCRIPT_DIR}/onvif_simple_server"
   mkdir -p /tmp/onvif_root/onvif
   # Bind to :: for dual-stack: accepts both IPv4 and IPv6 (requires net.ipv6.bindv6only=0,
   # which is the Linux default; Ubuntu 22.04 ships with it at 0).
@@ -127,37 +118,22 @@ do_start() {
   generate_onvif_conf
   generate_lighttpd_conf
 
-  DEVICE_IP=$(ip -4 addr show "$ONVIF_INTERFACE" 2>/dev/null \
-    | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
-  [[ -n "$DEVICE_IP" ]] || die "Cannot determine IP for interface ${ONVIF_INTERFACE}"
+  local wsd_bin="${SCRIPT_DIR}/wsd_simple_server" wsd_args
+  wsd_args=(
+    -x "http://%s:${ONVIF_PORT}/onvif/device_service"
+    -6 "http://[%s]:${ONVIF_PORT}/onvif/device_service"
+    -p "$WSD_PID_FILE"
+  )
+  # Pass explicit interface override only when set; otherwise wsd auto-detects
+  [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")
+  "$wsd_bin" "${wsd_args[@]}" >/dev/null 2>&1 &
 
-  # Global IPv6 address for dual-stack WS-Discovery (optional; skip if not configured)
-  DEVICE_IP6=$(ip -6 addr show "$ONVIF_INTERFACE" scope global 2>/dev/null \
-    | awk '/inet6 /{print $2}' | cut -d/ -f1 | head -1 || true)
-
-  local wsd_bin
-  wsd_bin=$(_find_bin wsd_simple_server)
-  if [[ -n "$DEVICE_IP6" ]]; then
-    "$wsd_bin" \
-      -x "http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service" \
-      -6 "http://[%s]:${ONVIF_PORT}/onvif/device_service" \
-      -p "$WSD_PID_FILE" \
-      >/dev/null 2>&1 &
-  else
-    "$wsd_bin" \
-      -x "http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service" \
-      -p "$WSD_PID_FILE" \
-      >/dev/null 2>&1 &
-  fi
-
-  "$(_find_bin lighttpd)" -f "$LIGHTTPD_CONF"
+  lighttpd -f "$LIGHTTPD_CONF"
 
   echo "======================================================"
   echo "  ONVIF server running"
-  echo "  Interface : ${ONVIF_INTERFACE} (${DEVICE_IP})"
-  echo "  ONVIF URL : http://${DEVICE_IP}:${ONVIF_PORT}/onvif/device_service"
-  [[ -n "${DEVICE_IP6:-}" ]] && \
-    echo "  ONVIF URL : http://[${DEVICE_IP6}]:${ONVIF_PORT}/onvif/device_service  (IPv6)"
+  echo "  Interface : ${ONVIF_INTERFACE:-(auto-detected by wsd)}"
+  echo "  ONVIF URL : http://<device-ip>:${ONVIF_PORT}/onvif/device_service"
   echo "  Discovery : WS-Discovery active (UDP 3702)"
   _STREAMS="MAIN (${MAIN_ENCODER^^} ${MAIN_WIDTH}x${MAIN_HEIGHT})"
   [[ "${SUB_ENABLED:-false}" == "true" ]] && _STREAMS="${_STREAMS}, SUB (${SUB_ENCODER^^} ${SUB_WIDTH}x${SUB_HEIGHT})"

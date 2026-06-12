@@ -41,13 +41,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Prefer bundled bin/ binary over system PATH (onvif_simple_server, wsd_simple_server)
-_find_bin() {
-  local name="$1"
-  if [[ -x "${SCRIPT_DIR}/bin/${name}" ]]; then echo "${SCRIPT_DIR}/bin/${name}"
-  else command -v "$name" 2>/dev/null || true
-  fi
-}
+_find_bin() { echo "${SCRIPT_DIR}/bin/$1"; }
 
 # ------------------------------------------------------------------------------
 # Load config
@@ -189,7 +183,6 @@ firmware_ver=0.1
 hardware_id=JetsonOrinNX
 serial_num=000000000001
 
-ifs=${ONVIF_INTERFACE:-eth0}
 port=${ONVIF_PORT}
 
 scope=onvif://www.onvif.org/Profile/Streaming

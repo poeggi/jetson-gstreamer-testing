@@ -17,13 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Prefer bundled bin/ binary over system PATH (onvif_simple_server, wsd_simple_server)
-_find_bin() {
-  local name="$1"
-  if [[ -x "${SCRIPT_DIR}/bin/${name}" ]]; then echo "${SCRIPT_DIR}/bin/${name}"
-  else command -v "$name" 2>/dev/null || true
-  fi
-}
+_find_bin() { echo "${SCRIPT_DIR}/bin/$1"; }
 
 # Source stream.conf so ONVIF_ENABLED, ONVIF_PORT, RTSP_PORT, etc. are available.
 # Args below can still override ENCODER and OUTPUT_MODE.
@@ -974,20 +968,18 @@ if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
   # the binary ran (even if it exited non-zero due to missing CGI environment).
   for _chk in onvif_simple_server wsd_simple_server; do
     _chk_path=$(_find_bin "$_chk")
-    if [[ "$_chk_path" == "${SCRIPT_DIR}/bin/"* ]]; then
-      _chk_ec=0
-      timeout 1 "$_chk_path" >/dev/null 2>&1 || _chk_ec=$?
-      if [[ $_chk_ec -eq 126 ]]; then
-        if [[ "${ONVIF_ENABLED:-false}" == "true" ]]; then
-          fail "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
-          fail "     Re-run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
-        else
-          warn "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
-          warn "     Not active now (ONVIF_ENABLED=false), but fix before enabling"
-        fi
+    _chk_ec=0
+    timeout 1 "$_chk_path" >/dev/null 2>&1 || _chk_ec=$?
+    if [[ $_chk_ec -eq 126 ]]; then
+      if [[ "${ONVIF_ENABLED:-false}" == "true" ]]; then
+        fail "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
+        fail "     Re-run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
       else
-        ok "ONVIF: bin/${_chk} runs on this CPU"
+        warn "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
+        warn "     Not active now (ONVIF_ENABLED=false), but fix before enabling"
       fi
+    else
+      ok "ONVIF: bin/${_chk} runs on this CPU"
     fi
   done
 
