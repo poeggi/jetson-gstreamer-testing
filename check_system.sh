@@ -972,7 +972,7 @@ if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
       if [[ $_chk_ec -eq 126 ]]; then
         if [[ "${ONVIF_ENABLED:-false}" == "true" ]]; then
           fail "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
-          fail "     Re-run ./build/build.ps1 targeting this machine's architecture"
+          fail "     Re-run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
         else
           warn "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
           warn "     Not active now (ONVIF_ENABLED=false), but fix before enabling"
@@ -1010,7 +1010,7 @@ else
   [[ -z "$_WSD_BIN"      ]] && _MISSING="${_MISSING} wsd_simple_server"
   [[ -z "$_LIGHTTPD_BIN" ]] && _MISSING="${_MISSING} lighttpd"
   warn "ONVIF: not available -- missing:${_MISSING}"
-  warn "     onvif_simple_server / wsd_simple_server: run ./build/build.ps1 (Windows)"
+  warn "     onvif_simple_server / wsd_simple_server: run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
   warn "     lighttpd: sudo apt install lighttpd"
   warn "     Run ./bin/start_onvif.sh after installing to enable NVR discovery"
 fi

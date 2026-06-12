@@ -62,7 +62,8 @@ dependencies -- run on any JetPack version). Only lighttpd needs installing:
 ```bash
 sudo apt install lighttpd
 ```
-To rebuild the binaries from source (Windows, requires Docker): `.\build\build.ps1`
+To rebuild the binaries from source (Windows, requires Docker): `.\bin\sources\cross-build-windows.ps1`
+Or natively on the Jetson: `./bin/sources/build-on-device.sh`
 
 ---
 
@@ -185,18 +186,21 @@ Use `receive_stream.sh [main|sub]` for the above with the correct codec pre-conf
 |-- check_system.sh          # Pre-flight system checks
 |-- diagnose_pipeline.sh     # Deep GStreamer pipeline diagnostics
 |-- receive_stream.sh        # GStreamer receive pipeline (Jetson hardware decode)
-|-- mediamtx.yml             # MediaMTX RTSP server config
 |
 |-- bin/                     # ARM64 binaries + ONVIF start scripts
 |   |-- onvif_simple_server  # ONVIF device server (static, linux/arm64)
 |   |-- wsd_simple_server    # WS-Discovery daemon (static, linux/arm64)
 |   |-- start_onvif.sh       # Start/stop full ONVIF stack (lighttpd + wsd)
-|   +-- start_wsd.sh         # Start/stop WS-Discovery only
+|   |-- start_wsd.sh         # Start/stop WS-Discovery only
+|   +-- sources/             # Build system + modified C sources
+|       |-- src/             # Local copy of modified onvif_simple_server sources
+|       |-- Dockerfile       # arm64 Docker image; clones from GitHub fork and builds
+|       |-- cross-build-windows.ps1  # Windows: Docker cross-compile to arm64
+|       |-- build-on-device.sh       # Jetson: native arm64 build from src/
+|       +-- README.md        # Build instructions and source modification notes
 |
-|-- build/                   # Cross-compilation build system (Windows + Docker)
-|   |-- Dockerfile           # arm64 Docker image; builds both ONVIF binaries
-|   |-- build.ps1            # PowerShell driver: build image, extract to bin/
-|   +-- README.md            # Build instructions and dependency details
+|-- blueprints/              # Config file templates
+|   +-- mediamtx.yml         # MediaMTX RTSP server config
 |
 +-- vlc-helpers/             # Stream viewer helpers
     |-- view_stream.ps1      # Windows: open stream in VLC
@@ -210,4 +214,5 @@ Use `receive_stream.sh [main|sub]` for the above with the correct codec pre-conf
 | `stream.conf` | Camera serial, encoder settings, ONVIF config, bitrates |
 | `send_stream.sh` | Pipeline entry point; run this on the Jetson |
 | `check_system.sh` | Run before first use to verify the setup |
-| `build/build.ps1` | Rebuild ONVIF binaries from source (Windows, Docker required) |
+| `bin/sources/cross-build-windows.ps1` | Rebuild ONVIF binaries from source (Windows, Docker required) |
+| `bin/sources/build-on-device.sh` | Rebuild ONVIF binaries natively on Jetson |

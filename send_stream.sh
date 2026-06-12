@@ -150,7 +150,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
       exit 1
     }
     echo "Starting MediaMTX (${MEDIAMTX_BIN})..."
-    "$MEDIAMTX_BIN" >/dev/null 2>&1 &
+    "$MEDIAMTX_BIN" "${SCRIPT_DIR}/blueprints/mediamtx.yml" >/dev/null 2>&1 &
     MEDIAMTX_PID=$!
     MEDIAMTX_WE_STARTED=1
     READY=0
@@ -177,7 +177,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
 
     if [[ -z "$_ONVIF_BIN" || -z "$_WSD_BIN" || -z "$_LIGHTTPD_BIN" ]]; then
       echo "WARNING: ONVIF_ENABLED=true but stack not fully installed -- skipping" >&2
-      echo "         onvif_simple_server / wsd_simple_server: run ./build/build.ps1 (Windows)" >&2
+      echo "         onvif_simple_server / wsd_simple_server: run ./bin/sources/cross-build-windows.ps1 (Windows)" >&2
       echo "         lighttpd: sudo apt install lighttpd" >&2
     else
       # Generate onvif_simple_server conf from stream.conf values
