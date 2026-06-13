@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BIN_DIR="${REPO_DIR}/bin"
-BRANCH="feature/onvif-mac-uuid"
+BRANCH="feature/onvif-uuid"
 FORK_URL="https://github.com/poeggi/onvif_simple_server.git"
 SRC_DIR="${SCRIPT_DIR}/onvif_simple_server"
 

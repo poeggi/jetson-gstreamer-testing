@@ -7,7 +7,7 @@ This directory contains the build system for compiling `onvif_simple_server` and
 
 | Binary | Source |
 |--------|--------|
-| `onvif_simple_server` | [poeggi/onvif_simple_server](https://github.com/poeggi/onvif_simple_server) fork, branch `feature/onvif-mac-uuid` |
+| `onvif_simple_server` | [poeggi/onvif_simple_server](https://github.com/poeggi/onvif_simple_server) fork, branch `feature/onvif-uuid` |
 | `wsd_simple_server` | same |
 
 Both binaries are built **fully statically linked** and placed into `../../bin/`
@@ -19,21 +19,34 @@ needing matching glibc or other shared libs.
 ## Source code
 
 Sources live in the [poeggi/onvif_simple_server](https://github.com/poeggi/onvif_simple_server)
-fork on branch `feature/onvif-mac-uuid`. This fork carries our modifications on top of
+fork on branch `feature/onvif-uuid`. This fork carries our modifications on top of
 [roleoroleo/onvif_simple_server](https://github.com/roleoroleo/onvif_simple_server).
 
 Work on the fork at: `d:\repos\onvif_simple_server` (or clone it fresh anywhere).
 
 ### Key modifications
 
+Changes are split across two upstream PRs:
+
+**PR #47 -- interface auto-detection** (`pr47-*` patches)
 | File | What changed |
 |------|-------------|
-| `wsd_simple_server.c` | Auto interface/IP detection (no `-i` flag); dual-stack `-6` support; deduped SHA-1/UUID/MAC |
 | `conf.c` | Fixed missing `#include <net/if.h>` (IFNAMSIZ); fixed printf format string bug |
-| `utils.c` / `utils.h` | MAC-based UUID v5 (stable ONVIF device UUID); SHA-1 helpers shared by both binaries |
+| `utils.c` / `utils.h` | `get_mac_by_ifname`, `get_mac_by_ip`, `get_ifname_by_addr`, `detect_local_address` moved here as non-static |
+| `wsd_simple_server.c` | Removed static copies of above (now shared via utils.h); `-i` flag now optional (auto-detects from routing table) |
+| `onvif_simple_server.h` | Added `address[46]` / `address_url[48]` fields; `ifs=` config now optional |
 
-All changes are documented as numbered patch files in `patches/` (generated with
-`git format-patch origin/master..HEAD`).
+**PR #49 -- stable UUID v5 via MAC (GetEndpointReference)** (`pr49-*` patches)
+| File | What changed |
+|------|-------------|
+| `utils.c` / `utils.h` | SHA-1 helpers (RFC 3174, UUID v5 only); `gen_uuid_v5_mac()` public function |
+| `onvif_simple_server.h` | Added `device_uuid[37]` field |
+| `conf.c` | UUID generated at startup from MAC; falls back to random UUID if MAC unavailable |
+| `device_service.c` / `.h` | `device_get_endpoint_reference()` serving GetEndpointReference.xml |
+| `onvif_simple_server.c` | Dispatch for GetEndpointReference |
+| `Makefile` / `test/` | `make test` runs unit tests (15/15); no crypto library needed |
+
+All changes are in `patches/` as `git format-patch` series named `pr47-*` and `pr49-*`.
 
 ---
 
@@ -50,11 +63,11 @@ Requirements: Docker Desktop 4.x+ with multi-arch support (enabled by default).
 
 ```powershell
 # Run from repo root:
-.\bin\sources\cross-build-windows.ps1                                      # default branch
-.\bin\sources\cross-build-windows.ps1 -Branch feature/onvif-mac-uuid      # specific branch
+.\bin\sources\cross-build-windows.ps1                                      # default branch (feature/onvif-uuid)
+.\bin\sources\cross-build-windows.ps1 -Branch feature/onvif-uuid          # explicit branch
 ```
 
-First run: 5–15 min (Docker pulls arm64 Ubuntu image via QEMU). Subsequent runs: fast (cache).
+First run: 5-15 min (Docker pulls arm64 Ubuntu image via QEMU). Subsequent runs: fast (cache).
 
 To force a fresh clone when the branch HEAD changed without the branch name changing:
 
@@ -74,7 +87,7 @@ sudo apt-get install git gcc make libjson-c-dev zlib1g-dev wget xz-utils
 ./bin/sources/build-on-device.sh
 ```
 
-Clones the fork into `bin/sources/onvif_simple_server/` (gitignored — never committed).
+Clones the fork into `bin/sources/onvif_simple_server/` (gitignored -- never committed).
 On subsequent runs the existing clone is updated via `git pull`. Only `libtomcrypt`
 is downloaded separately at build time.
 

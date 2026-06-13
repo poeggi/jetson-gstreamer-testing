@@ -13,14 +13,14 @@
 # Source is cloned from our fork (poeggi/onvif_simple_server) at the given branch.
 #
 # Usage (run from repo root):
-#   .\bin\sources\cross-build-windows.ps1                              # builds feature/onvif-mac-uuid (default)
+#   .\bin\sources\cross-build-windows.ps1                              # builds feature/onvif-uuid (default)
 #   .\bin\sources\cross-build-windows.ps1 -Branch feature/onvif-uuid  # build a specific branch
 #
 # Output: bin/onvif_simple_server  and  bin/wsd_simple_server  (linux/arm64, statically linked)
 # After building: git add bin/onvif_simple_server bin/wsd_simple_server && git commit
 
 param(
-    [string]$Branch = "feature/onvif-mac-uuid"
+    [string]$Branch = "feature/onvif-uuid"
 )
 
 $ErrorActionPreference = "Stop"
