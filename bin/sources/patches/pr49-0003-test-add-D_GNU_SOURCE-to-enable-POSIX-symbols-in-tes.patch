@@ -1,0 +1,26 @@
+From bafb4e40340b60e44e406bfc57ac7034bc34b9a2 Mon Sep 17 00:00:00 2001
+From: poeggi <48416618+poeggi@users.noreply.github.com>
+Date: Sat, 13 Jun 2026 09:34:19 +0400
+Subject: [PATCH 3/3] test: add -D_GNU_SOURCE to enable POSIX symbols in test
+ build
+
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index 63fe4df..5fc9750 100644
+--- a/Makefile
++++ b/Makefile
+@@ -60,7 +60,7 @@ test: test/test_utils
+ 	./test/test_utils
+ 
+ test/test_utils: test/test_utils.c test/stubs.c utils.c log.c
+-	cc -I. -Itest -DHAVE_MBEDTLS -std=c99 \
++	cc -I. -Itest -DHAVE_MBEDTLS -D_GNU_SOURCE -std=c99 \
+ 		test/test_utils.c test/stubs.c utils.c log.c \
+ 		-lz -lpthread -lrt -o test/test_utils
+ 
+-- 
+2.53.0.windows.1
+

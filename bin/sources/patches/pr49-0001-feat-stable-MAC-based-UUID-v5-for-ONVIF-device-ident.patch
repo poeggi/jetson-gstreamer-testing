@@ -1,0 +1,448 @@
+From ea819c9ad13b5abab8c3d65d7a1f5edbfdbb5a93 Mon Sep 17 00:00:00 2001
+From: poeggi <48416618+poeggi@users.noreply.github.com>
+Date: Sat, 13 Jun 2026 09:26:48 +0400
+Subject: [PATCH 1/3] feat: stable MAC-based UUID v5 for ONVIF device identity
+ (GetEndpointReference)
+
+Generate a deterministic UUID v5 from the device's MAC address instead of
+a random UUID.  The UUID is the same across reboots and satisfies the
+WS-Discovery 1.1 requirement that the endpoint reference be stable.
+
+Algorithm: SHA-1 of (DNS_NAMESPACE_UUID + "mac:xx:xx:xx:xx:xx:xx") per
+RFC 4122, using the same MAC that auto-detection already resolved.
+
+Changes:
+  utils.c: add SHA-1 (RFC 3174) helpers and gen_uuid_v5_mac(); the helpers
+    are named hash_uuid5_* to make their purpose explicit and to signal
+    they are NOT suitable for general-purpose cryptographic use.
+  utils.h: declare gen_uuid_v5_mac().
+  conf.c: call gen_uuid_v5_mac() after address/ifs resolution; result stored
+    in service_ctx.device_uuid.  Falls back to random UUID if MAC is
+    unavailable.
+  onvif_simple_server.h: add device_uuid[37] field to service_context_t.
+  onvif_simple_server.c: dispatch GetEndpointReference.
+  device_service.c / device_service.h: implement device_get_endpoint_reference().
+  device_service_files/GetEndpointReference.xml: SOAP response template.
+  wsd_simple_server.c: remove local static SHA-1 / UUID / gen_uuid_v5_mac
+    block -- these are now provided by utils.c.
+---
+ Makefile                                      |  13 +-
+ README.md                                     |   1 +
+ conf.c                                        |  20 +++
+ device_service.c                              |  11 ++
+ device_service.h                              |   1 +
+ device_service_files/GetEndpointReference.xml |  10 ++
+ onvif_simple_server.c                         |   2 +
+ onvif_simple_server.h                         |   1 +
+ utils.c                                       |  94 +++++++++++++++
+ utils.h                                       |   1 +
+ wsd_simple_server.c                           | 114 ------------------
+ 11 files changed, 153 insertions(+), 115 deletions(-)
+ create mode 100644 device_service_files/GetEndpointReference.xml
+
+diff --git a/Makefile b/Makefile
+index 9eb8c93..63fe4df 100644
+--- a/Makefile
++++ b/Makefile
+@@ -52,12 +52,23 @@ wsd_simple_server: $(OBJECTS_W)
+ 	$(CC) $(OBJECTS_W) $(LIBS_W) -fPIC -Os -o $@
+ 	$(STRIP) $@
+ 
+-.PHONY: clean
++.PHONY: all clean test
++
++# Build and run unit tests using the native host compiler.
++# Uses stub mbedTLS headers from test/ so no crypto library is required.
++test: test/test_utils
++	./test/test_utils
++
++test/test_utils: test/test_utils.c test/stubs.c utils.c log.c
++	cc -I. -Itest -DHAVE_MBEDTLS -std=c99 \
++		test/test_utils.c test/stubs.c utils.c log.c \
++		-lz -lpthread -lrt -o test/test_utils
+ 
+ clean:
+ 	rm -f onvif_simple_server
+ 	rm -f onvif_notify_server
+ 	rm -f wsd_simple_server
++	rm -f test/test_utils
+ 	rm -f $(OBJECTS_O)
+ 	rm -f $(OBJECTS_N)
+ 	rm -f $(OBJECTS_W)
+diff --git a/README.md b/README.md
+index c366e67..438dcd0 100644
+--- a/README.md
++++ b/README.md
+@@ -32,6 +32,7 @@ But usually is enough to work with an onvif client.
+ - Export HAVE_WOLFSSL if you want to use wolfssl or HAVE_MBEDTLS if you want to use mbedtls (default libtomcrypt).
+ - Export USE_ZLIB if you want to use compressed template files. In this case, all xml files will be compressed to use less disk space but the server will be slower.
+ - Run `make`
++- Run `make test` to build and run the unit tests (requires a native C compiler; no crypto library needed)
+ 
+ ## Httpd
+ ### Create a working example with lighttpd
+diff --git a/conf.c b/conf.c
+index f23ce9c..cbcc673 100644
+--- a/conf.c
++++ b/conf.c
+@@ -650,6 +650,16 @@ int process_conf_file(char *file)
+                 sizeof(service_ctx.address_url) - 1);
+     service_ctx.address_url[sizeof(service_ctx.address_url) - 1] = '\0';
+ 
++    /* Stable device UUID from MAC */
++    {
++        uint8_t mac[6] = {0};
++        if (get_mac_by_ifname(service_ctx.ifs, mac) == 0)
++            gen_uuid_v5_mac(service_ctx.device_uuid, mac);
++        else
++            gen_uuid(service_ctx.device_uuid);
++        log_info("Device UUID: %s", service_ctx.device_uuid);
++    }
++
+     return 0;
+ }
+ 
+@@ -888,6 +898,16 @@ int process_json_conf_file(char *file)
+                 sizeof(service_ctx.address_url) - 1);
+     service_ctx.address_url[sizeof(service_ctx.address_url) - 1] = '\0';
+ 
++    /* Stable device UUID from MAC */
++    {
++        uint8_t mac[6] = {0};
++        if (get_mac_by_ifname(service_ctx.ifs, mac) == 0)
++            gen_uuid_v5_mac(service_ctx.device_uuid, mac);
++        else
++            gen_uuid(service_ctx.device_uuid);
++        log_info("Device UUID: %s", service_ctx.device_uuid);
++    }
++
+     // Print debug
+     log_debug("model: %s", service_ctx.model);
+     log_debug("manufacturer: %s", service_ctx.manufacturer);
+diff --git a/device_service.c b/device_service.c
+index 4f29006..348a54d 100644
+--- a/device_service.c
++++ b/device_service.c
+@@ -622,6 +622,17 @@ int device_get_discovery_mode()
+     return cat("stdout", "device_service_files/GetDiscoveryMode.xml", 0);
+ }
+ 
++int device_get_endpoint_reference()
++{
++    long size = cat(NULL, "device_service_files/GetEndpointReference.xml", 2,
++            "%DEVICE_UUID%", service_ctx.device_uuid);
++
++    output_http_headers(size);
++
++    return cat("stdout", "device_service_files/GetEndpointReference.xml", 2,
++            "%DEVICE_UUID%", service_ctx.device_uuid);
++}
++
+ int device_unsupported(const char *method)
+ {
+     if (service_ctx.adv_fault_if_unknown == 1)
+diff --git a/device_service.h b/device_service.h
+index c27a211..4426aad 100644
+--- a/device_service.h
++++ b/device_service.h
+@@ -28,6 +28,7 @@ int device_get_wsdl_url();
+ int device_get_capabilities();
+ int device_get_network_interfaces();
+ int device_get_discovery_mode();
++int device_get_endpoint_reference();
+ 
+ int device_unsupported(const char *method);
+ 
+diff --git a/device_service_files/GetEndpointReference.xml b/device_service_files/GetEndpointReference.xml
+new file mode 100644
+index 0000000..3c4aaf1
+--- /dev/null
++++ b/device_service_files/GetEndpointReference.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://www.w3.org/2003/05/soap-envelope"
++                   xmlns:tds="http://www.onvif.org/ver10/device/wsdl"
++                   xmlns:wsa5="http://www.w3.org/2005/08/addressing">
++    <SOAP-ENV:Body>
++        <tds:GetEndpointReferenceResponse>
++            <tds:GUID>urn:uuid:%DEVICE_UUID%</tds:GUID>
++        </tds:GetEndpointReferenceResponse>
++    </SOAP-ENV:Body>
++</SOAP-ENV:Envelope>
+diff --git a/onvif_simple_server.c b/onvif_simple_server.c
+index 5e389d4..4ef1a33 100644
+--- a/onvif_simple_server.c
++++ b/onvif_simple_server.c
+@@ -479,6 +479,8 @@ int main(int argc, char ** argv)
+                 device_get_network_interfaces();
+             } else if (strcasecmp(method, "GetDiscoveryMode") == 0) {
+                 device_get_discovery_mode();
++            } else if (strcasecmp(method, "GetEndpointReference") == 0) {
++                device_get_endpoint_reference();
+             } else {
+                 device_unsupported(method);
+             }
+diff --git a/onvif_simple_server.h b/onvif_simple_server.h
+index 49931e5..7261c1f 100644
+--- a/onvif_simple_server.h
++++ b/onvif_simple_server.h
+@@ -116,6 +116,7 @@ typedef struct {
+     char *serial_num;
+     char *hardware_id;
+ 
++    char device_uuid[37];   /* stable MAC-based UUID v5 */
+     char address[46];       /* resolved local IP (plain, no scope ID) */
+     char address_url[48];   /* URL-safe: IPv6 wrapped in [...] */
+ 
+diff --git a/utils.c b/utils.c
+index bb743ef..1e51b8e 100644
+--- a/utils.c
++++ b/utils.c
+@@ -1043,6 +1043,73 @@ int gen_uuid(char *g_uuid)
+     return 0;
+ }
+ 
++/* -------------------------------------------------------------------------
++ * SHA-1 (RFC 3174) helpers used only for UUID v5 generation.
++ * NOT suitable for general-purpose cryptographic use.
++ * ---------------------------------------------------------------------- */
++static void hash_uuid5_store32(uint8_t *b, uint32_t v)
++{
++    b[0] = v >> 24; b[1] = v >> 16; b[2] = v >> 8; b[3] = v;
++}
++
++static void hash_uuid5_compress(uint32_t h[5], const uint8_t blk[64])
++{
++    uint32_t w[80], a, b, c, d, e, f, k, t;
++    int i;
++
++    for (i = 0; i < 16; i++)
++        w[i] = ((uint32_t)blk[i*4] << 24) | ((uint32_t)blk[i*4+1] << 16) |
++               ((uint32_t)blk[i*4+2] << 8) | blk[i*4+3];
++    for (i = 16; i < 80; i++) {
++        t = w[i-3] ^ w[i-8] ^ w[i-14] ^ w[i-16];
++        w[i] = (t << 1) | (t >> 31);
++    }
++
++    a = h[0]; b = h[1]; c = h[2]; d = h[3]; e = h[4];
++    for (i = 0; i < 80; i++) {
++        if      (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999U; }
++        else if (i < 40) { f = b ^ c ^ d;           k = 0x6ED9EBA1U; }
++        else if (i < 60) { f = (b&c)|(b&d)|(c&d);  k = 0x8F1BBCDCU; }
++        else             { f = b ^ c ^ d;            k = 0xCA62C1D6U; }
++        t = ((a << 5) | (a >> 27)) + f + e + k + w[i];
++        e = d; d = c; c = (b << 30) | (b >> 2); b = a; a = t;
++    }
++    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
++}
++
++static void hash_uuid5(const uint8_t *data, size_t len, uint8_t out[20])
++{
++    uint32_t h[5] = { 0x67452301U, 0xEFCDAB89U, 0x98BADCFEU,
++                      0x10325476U, 0xC3D2E1F0U };
++    uint8_t block[64];
++    size_t i, r = len % 64;
++    uint64_t bits;
++
++    for (i = 0; i + 64 <= len; i += 64)
++        hash_uuid5_compress(h, data + i);
++
++    memset(block, 0, 64);
++    if (r) memcpy(block, data + i, r);
++    block[r] = 0x80;
++    if (r >= 56) {
++        hash_uuid5_compress(h, block);
++        memset(block, 0, 64);
++    }
++    bits = (uint64_t)len * 8;
++    hash_uuid5_store32(block + 56, (uint32_t)(bits >> 32));
++    hash_uuid5_store32(block + 60, (uint32_t)bits);
++    hash_uuid5_compress(h, block);
++
++    for (i = 0; i < 5; i++)
++        hash_uuid5_store32(out + i*4, h[i]);
++}
++
++/* RFC 4122 DNS namespace: 6ba7b810-9dad-11d1-80b4-00c04fd430c8 */
++static const uint8_t UUID_NS_DNS[16] = {
++    0x6b, 0xa7, 0xb8, 0x10,  0x9d, 0xad,  0x11, 0xd1,
++    0x80, 0xb4,  0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8
++};
++
+ int get_mac_by_ifname(const char *if_name, uint8_t mac_out[6])
+ {
+     struct ifreq ifr;
+@@ -1208,6 +1275,33 @@ int detect_local_address(const char *remote_addr, char *local_addr, size_t len)
+         return connect_trick_v4(clean, local_addr, len);
+ }
+ 
++void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6])
++{
++    char name[32];
++    uint8_t input[40];   /* 16-byte NS + up to 23-byte name */
++    uint8_t hash[20];
++    size_t name_len;
++
++    snprintf(name, sizeof(name), "mac:%02x:%02x:%02x:%02x:%02x:%02x",
++             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
++    name_len = strlen(name);
++
++    memcpy(input, UUID_NS_DNS, 16);
++    memcpy(input + 16, name, name_len);
++    hash_uuid5(input, 16 + name_len, hash);
++
++    hash[6] = (hash[6] & 0x0F) | 0x50;   /* version = 5 */
++    hash[8] = (hash[8] & 0x3F) | 0x80;   /* variant = RFC 4122 */
++
++    snprintf(uuid_str, UUID_LEN + 1,
++             "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x"
++             "-%02x%02x%02x%02x%02x%02x",
++             hash[0],  hash[1],  hash[2],  hash[3],
++             hash[4],  hash[5],  hash[6],  hash[7],
++             hash[8],  hash[9],
++             hash[10], hash[11], hash[12], hash[13], hash[14], hash[15]);
++}
++
+ /**
+  * Get the value of a parameter in the query string
+  * @param par The name of the parameter
+diff --git a/utils.h b/utils.h
+index 13b790e..cef3d62 100644
+--- a/utils.h
++++ b/utils.h
+@@ -103,6 +103,7 @@ int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6]);
+ int get_ifname_by_addr(const char *addr_str, char *ifname, size_t len);
+ int get_mac_by_addr(const char *addr_str, uint8_t mac_out[6]);
+ int detect_local_address(const char *remote_addr, char *local_addr, size_t len);
++void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6]);
+ int get_from_query_string(char **ret, int *ret_size, char *par);
+ int set_video_codec(char *buffer, int buffer_len, int codec, int ver);
+ int set_audio_codec(char *buffer, int buffer_len, int codec, int ver);
+diff --git a/wsd_simple_server.c b/wsd_simple_server.c
+index a84ea9b..7550036 100644
+--- a/wsd_simple_server.c
++++ b/wsd_simple_server.c
+@@ -117,120 +117,6 @@ static int detect_outbound_address(char *addr_str)
+     return 0;
+ }
+ 
+-/* -------------------------------------------------------------------------
+- * Compact SHA-1 (RFC 3174 / FIPS 180-4) -- used only for UUID v5 generation.
+- * No external dependencies.
+- * ---------------------------------------------------------------------- */
+-
+-static void sha1_store32(uint8_t *b, uint32_t v)
+-{
+-    b[0] = v >> 24; b[1] = v >> 16; b[2] = v >> 8; b[3] = v;
+-}
+-
+-static void sha1_compress(uint32_t h[5], const uint8_t blk[64])
+-{
+-    uint32_t w[80], a, b, c, d, e, f, k, t;
+-    int i;
+-
+-    for (i = 0; i < 16; i++)
+-        w[i] = ((uint32_t)blk[i*4] << 24) | ((uint32_t)blk[i*4+1] << 16) |
+-               ((uint32_t)blk[i*4+2] << 8) | blk[i*4+3];
+-    for (i = 16; i < 80; i++) {
+-        t = w[i-3] ^ w[i-8] ^ w[i-14] ^ w[i-16];
+-        w[i] = (t << 1) | (t >> 31);
+-    }
+-
+-    a = h[0]; b = h[1]; c = h[2]; d = h[3]; e = h[4];
+-    for (i = 0; i < 80; i++) {
+-        if      (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999U; }
+-        else if (i < 40) { f = b ^ c ^ d;           k = 0x6ED9EBA1U; }
+-        else if (i < 60) { f = (b&c)|(b&d)|(c&d);  k = 0x8F1BBCDCU; }
+-        else             { f = b ^ c ^ d;            k = 0xCA62C1D6U; }
+-        t = ((a << 5) | (a >> 27)) + f + e + k + w[i];
+-        e = d; d = c; c = (b << 30) | (b >> 2); b = a; a = t;
+-    }
+-    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+-}
+-
+-static void sha1(const uint8_t *data, size_t len, uint8_t out[20])
+-{
+-    uint32_t h[5] = { 0x67452301U, 0xEFCDAB89U, 0x98BADCFEU,
+-                      0x10325476U, 0xC3D2E1F0U };
+-    uint8_t block[64];
+-    size_t i, r = len % 64;
+-    uint64_t bits;
+-
+-    for (i = 0; i + 64 <= len; i += 64)
+-        sha1_compress(h, data + i);
+-
+-    memset(block, 0, 64);
+-    if (r) memcpy(block, data + i, r);
+-    block[r] = 0x80;
+-    if (r >= 56) {
+-        sha1_compress(h, block);
+-        memset(block, 0, 64);
+-    }
+-    bits = (uint64_t)len * 8;
+-    sha1_store32(block + 56, (uint32_t)(bits >> 32));
+-    sha1_store32(block + 60, (uint32_t)bits);
+-    sha1_compress(h, block);
+-
+-    for (i = 0; i < 5; i++)
+-        sha1_store32(out + i*4, h[i]);
+-}
+-
+-/* -------------------------------------------------------------------------
+- * UUID v5 (SHA-1 name-based, RFC 4122).
+- *
+- * Generates a stable, deterministic UUID from the device's MAC address.
+- * The DNS namespace UUID is used as per RFC 4122 Appendix C.
+- * Satisfies the WS-Discovery 1.1 requirement:
+- *   "The endpoint reference MUST be stable across restarts of the Target Service."
+- * ---------------------------------------------------------------------- */
+-
+-/* RFC 4122 DNS namespace: 6ba7b810-9dad-11d1-80b4-00c04fd430c8 */
+-static const uint8_t UUID_NS_DNS[16] = {
+-    0x6b, 0xa7, 0xb8, 0x10,  0x9d, 0xad,  0x11, 0xd1,
+-    0x80, 0xb4,  0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8
+-};
+-
+-/*
+- * Build a UUID v5 from a MAC address and write it into uuid_str.
+- * The name fed to the hash is "mac:xx:xx:xx:xx:xx:xx" (lower-case hex).
+- * uuid_str must hold at least UUID_LEN + 1 bytes.
+- */
+-static void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6])
+-{
+-    char name[32];
+-    uint8_t input[16 + 24];  /* namespace (16) + name (max 23 + NUL) */
+-    uint8_t hash[20];
+-    size_t name_len;
+-
+-    snprintf(name, sizeof(name), "mac:%02x:%02x:%02x:%02x:%02x:%02x",
+-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+-    name_len = strlen(name);
+-
+-    memcpy(input, UUID_NS_DNS, 16);
+-    memcpy(input + 16, name, name_len);
+-
+-    sha1(input, 16 + name_len, hash);
+-
+-    /* Set version 5 and RFC 4122 variant bits */
+-    hash[6] = (hash[6] & 0x0F) | 0x50;   /* version = 5 */
+-    hash[8] = (hash[8] & 0x3F) | 0x80;   /* variant = 10xx */
+-
+-    snprintf(uuid_str, UUID_LEN + 1,
+-             "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x"
+-             "-%02x%02x%02x%02x%02x%02x",
+-             hash[0],  hash[1],  hash[2],  hash[3],
+-             hash[4],  hash[5],
+-             hash[6],  hash[7],
+-             hash[8],  hash[9],
+-             hash[10], hash[11], hash[12], hash[13], hash[14], hash[15]);
+-}
+-
+-/* get_mac_by_ifname and get_mac_by_ip moved to utils.c */
+-
+ int daemonize(int flags)
+ {
+     int maxfd, fd;
+-- 
+2.53.0.windows.1
+

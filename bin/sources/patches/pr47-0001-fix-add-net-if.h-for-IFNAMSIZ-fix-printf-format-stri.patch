@@ -1,15 +1,15 @@
-From 003a9f97cc98e1ce7148930ee8ed3a29576efdf2 Mon Sep 17 00:00:00 2001
+From 754384269f03c50568aa7d5a8a96b30fce158cbb Mon Sep 17 00:00:00 2001
 From: poeggi <48416618+poeggi@users.noreply.github.com>
 Date: Fri, 12 Jun 2026 22:11:03 +0800
-Subject: [PATCH 11/12] fix: add net/if.h for IFNAMSIZ, fix printf format
- string in print_conf_help
+Subject: [PATCH 1/2] fix: add net/if.h for IFNAMSIZ, fix printf format string
+ in print_conf_help
 
 ---
  conf.c | 3 ++-
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/conf.c b/conf.c
-index dd28ae2..47f3d89 100644
+index c9a33a7..e1d4aad 100644
 --- a/conf.c
 +++ b/conf.c
 @@ -22,6 +22,7 @@
@@ -20,7 +20,7 @@ index dd28ae2..47f3d89 100644
  
  #include <json-c/json.h>
  #include "conf.h"
-@@ -1323,7 +1324,7 @@ void print_conf_help()
+@@ -1245,7 +1246,7 @@ void print_conf_help()
      fprintf(stderr, "\tmove_down=/tmp/sd/yi-hack/bin/ipc_cmd -m down -s %%f\n");
      fprintf(stderr, "\tmove_in=/tmp/sd/yi-hack/bin/ipc_cmd -m in -s %%f\n");
      fprintf(stderr, "\tmove_out=/tmp/sd/yi-hack/bin/ipc_cmd -m out -s %%f\n");

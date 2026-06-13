@@ -1,36 +1,44 @@
-From a88bf67a1754dbce821116711c73a366aeace9d8 Mon Sep 17 00:00:00 2001
+From b4e6e1e9627a42038e433961bb6ba9576eb70521 Mon Sep 17 00:00:00 2001
 From: poeggi <48416618+poeggi@users.noreply.github.com>
-Date: Fri, 12 Jun 2026 17:36:45 +0800
-Subject: [PATCH 10/12] feat: auto-detect local address from REMOTE_ADDR; ifs=
+Date: Sat, 13 Jun 2026 09:14:08 +0400
+Subject: [PATCH 2/2] feat: auto-detect local address from REMOTE_ADDR; ifs=
  now optional override
 
-Replace hardcoded ifs=/address= config with protocol-aware auto-detection:
-- detect_local_address() uses REMOTE_ADDR + connect() trick to find the
-  outbound local IP matching the client's protocol (IPv4 or IPv6)
-- Loopback clients (local proxy) fall back to WSD multicast connect trick
-- ifs= config option kept as optional override (same semantics as -i in
-  wsd_simple_server): when set, address and MAC both come from that interface
-- All service files (device, events, media, media2) use service_ctx.address_url
-  for URL construction instead of calling get_ip_address() per request
-- GetNetworkInterfaces keeps get_ip_address() for netmask/prefix-length
-- conf.example and JSON example updated: ifs= commented out as optional
+Make ifs= optional in onvif_simple_server.conf: if omitted, the server
+derives the outbound interface from REMOTE_ADDR (the CGI environment
+variable set by the HTTP server to the client's IP address).
+
+New helper functions in utils.c / utils.h:
+  get_mac_by_ifname()       - read MAC via SIOCGIFHWADDR ioctl
+  get_mac_by_ip()           - look up interface by IPv4, then read MAC
+  get_ifname_by_addr()      - resolve interface name from IPv4 or IPv6 address
+  get_mac_by_addr()         - convenience wrapper
+  detect_local_address()    - local IP the kernel uses to reach a given remote
+  detect_outbound_address() - outbound IPv4 via UDP connect trick (for WSD)
+
+Previously, get_mac_by_ifname / get_mac_by_ip / detect_outbound_address
+existed only as static functions inside wsd_simple_server.c.  Moving them
+to utils.c makes them available to onvif_simple_server.c as well.
+
+Also update README: mark ifs= as optional in the example config and table.
 ---
  README.md                        |   4 +-
- conf.c                           |  81 ++++++++++++++++---
- device_service.c                 |  44 +++-------
- events_service.c                 |  10 +--
+ conf.c                           |  72 ++++++++++++--
+ device_service.c                 |  44 +++------
+ events_service.c                 |  10 +-
  fault.c                          |   8 +-
- media2_service.c                 |  16 +---
- media_service.c                  |  16 +---
+ media2_service.c                 |  16 +--
+ media_service.c                  |  16 +--
  onvif_simple_server.conf.example |   2 +-
- onvif_simple_server.h            |   4 +-
+ onvif_simple_server.h            |   3 +
  onvif_simple_server.json.example |   1 -
- utils.c                          | 133 +++++++++++++++++++++++++++++++
- utils.h                          |   3 +
- 12 files changed, 234 insertions(+), 88 deletions(-)
+ utils.c                          | 165 +++++++++++++++++++++++++++++++
+ utils.h                          |   5 +
+ wsd_simple_server.c              |  57 +----------
+ 13 files changed, 264 insertions(+), 139 deletions(-)
 
 diff --git a/README.md b/README.md
-index af35b26..45030e2 100644
+index b27394d..c366e67 100644
 --- a/README.md
 +++ b/README.md
 @@ -94,7 +94,7 @@ manufacturer=Yi
@@ -52,10 +60,10 @@ index af35b26..45030e2 100644
  | user | the user you want to set for WS-UsernameToken authentication, if blank security is disabled |
  | adv_enable_media2 | enable media2 methods for Profile T |
 diff --git a/conf.c b/conf.c
-index 83ae792..dd28ae2 100644
+index e1d4aad..f23ce9c 100644
 --- a/conf.c
 +++ b/conf.c
-@@ -616,11 +616,40 @@ int process_conf_file(char *file)
+@@ -617,10 +617,39 @@ int process_conf_file(char *file)
          service_ctx.hardware_id = (char *) malloc(strlen(DEFAULT_HW_ID) + 1);
          strcpy(service_ctx.hardware_id, DEFAULT_HW_ID);
      }
@@ -87,7 +95,6 @@ index 83ae792..dd28ae2 100644
 +            strcpy(service_ctx.ifs, DEFAULT_IFS);
 +        }
      }
--
 +    if (strchr(service_ctx.address, ':'))
 +        snprintf(service_ctx.address_url, sizeof(service_ctx.address_url),
 +                 "[%s]", service_ctx.address);
@@ -96,11 +103,10 @@ index 83ae792..dd28ae2 100644
 +                sizeof(service_ctx.address_url) - 1);
 +    service_ctx.address_url[sizeof(service_ctx.address_url) - 1] = '\0';
 +
-+    /* Stable device UUID from MAC */
-     {
-         uint8_t mac[6] = {0};
-         if (get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
-@@ -785,7 +814,6 @@ int process_json_conf_file(char *file)
+     return 0;
+ }
+ 
+@@ -775,7 +804,6 @@ int process_json_conf_file(char *file)
      get_string_from_json(&(service_ctx.firmware_ver), json_file, "firmware_ver");
      get_string_from_json(&(service_ctx.hardware_id), json_file, "hardware_id");
      get_string_from_json(&(service_ctx.serial_num), json_file, "serial_num");
@@ -108,7 +114,7 @@ index 83ae792..dd28ae2 100644
      get_int_from_json(&(service_ctx.port), json_file, "port");
  
      if (json_object_object_get_ex(json_file, "scopes", &value)) {
-@@ -805,6 +833,7 @@ int process_json_conf_file(char *file)
+@@ -795,6 +823,7 @@ int process_json_conf_file(char *file)
      }
      get_string_from_json(&(service_ctx.user), json_file, "user");
      get_string_from_json(&(service_ctx.password), json_file, "password");
@@ -116,7 +122,7 @@ index 83ae792..dd28ae2 100644
      get_bool_from_json(&(service_ctx.adv_enable_media2), json_file, "adv_enable_media2");
      get_bool_from_json(&(service_ctx.adv_fault_if_unknown), json_file, "adv_fault_if_unknown");
      get_bool_from_json(&(service_ctx.adv_fault_if_set), json_file, "adv_fault_if_set");
-@@ -836,16 +865,44 @@ int process_json_conf_file(char *file)
+@@ -826,11 +855,38 @@ int process_json_conf_file(char *file)
          if (service_ctx.hardware_id)
              strcpy(service_ctx.hardware_id, DEFAULT_HW_ID);
      }
@@ -149,7 +155,6 @@ index 83ae792..dd28ae2 100644
 +            if (service_ctx.ifs) strcpy(service_ctx.ifs, DEFAULT_IFS);
 +        }
      }
--
 +    if (strchr(service_ctx.address, ':'))
 +        snprintf(service_ctx.address_url, sizeof(service_ctx.address_url),
 +                 "[%s]", service_ctx.address);
@@ -157,19 +162,11 @@ index 83ae792..dd28ae2 100644
 +        strncpy(service_ctx.address_url, service_ctx.address,
 +                sizeof(service_ctx.address_url) - 1);
 +    service_ctx.address_url[sizeof(service_ctx.address_url) - 1] = '\0';
-+
-+    /* Stable device UUID from MAC */
-     {
-         uint8_t mac[6] = {0};
--        if (!service_ctx.ifs || get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
--            log_fatal("Cannot get MAC address from interface %s -- cannot generate stable device UUID.", service_ctx.ifs ? service_ctx.ifs : "(null)");
-+        if (get_mac_by_ifname(service_ctx.ifs, mac) != 0) {
-+            log_fatal("Cannot get MAC address from interface %s -- cannot generate stable device UUID.", service_ctx.ifs);
-             exit(EXIT_FAILURE);
-         }
-         gen_uuid_v5_mac(service_ctx.device_uuid, mac);
+ 
+     // Print debug
+     log_debug("model: %s", service_ctx.model);
 diff --git a/device_service.c b/device_service.c
-index 2b7b4ce..348a54d 100644
+index ebacd1d..4f29006 100644
 --- a/device_service.c
 +++ b/device_service.c
 @@ -32,17 +32,6 @@ extern service_context_t service_ctx;
@@ -485,20 +482,19 @@ index 100951a..6653f2c 100644
  scope=onvif://www.onvif.org/Profile/Streaming
  scope=onvif://www.onvif.org/Profile/T
 diff --git a/onvif_simple_server.h b/onvif_simple_server.h
-index 143a5fc..7261c1f 100644
+index e6ddb92..49931e5 100644
 --- a/onvif_simple_server.h
 +++ b/onvif_simple_server.h
-@@ -116,7 +116,9 @@ typedef struct {
+@@ -116,6 +116,9 @@ typedef struct {
      char *serial_num;
      char *hardware_id;
  
--    char device_uuid[37];   /* stable MAC-based UUID v5, or random fallback */
-+    char device_uuid[37];   /* stable MAC-based UUID v5 */
 +    char address[46];       /* resolved local IP (plain, no scope ID) */
 +    char address_url[48];   /* URL-safe: IPv6 wrapped in [...] */
- 
++
      char *ifs;
  
+     int adv_enable_media2;
 diff --git a/onvif_simple_server.json.example b/onvif_simple_server.json.example
 index f98000a..865ac7c 100644
 --- a/onvif_simple_server.json.example
@@ -512,13 +508,45 @@ index f98000a..865ac7c 100644
      "scopes": [
          "onvif://www.onvif.org/Profile/Streaming",
 diff --git a/utils.c b/utils.c
-index d4e70a9..ceb3668 100644
+index dbef6e0..bb743ef 100644
 --- a/utils.c
 +++ b/utils.c
-@@ -1142,6 +1142,139 @@ int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6])
-     return (found[0] == '\0') ? -1 : get_mac_by_ifname(found, mac_out);
+@@ -1043,6 +1043,171 @@ int gen_uuid(char *g_uuid)
+     return 0;
  }
  
++int get_mac_by_ifname(const char *if_name, uint8_t mac_out[6])
++{
++    struct ifreq ifr;
++    int fd, ret;
++
++    fd = socket(AF_INET, SOCK_DGRAM, 0);
++    if (fd < 0) return -1;
++    memset(&ifr, 0, sizeof(ifr));
++    strncpy(ifr.ifr_name, if_name, IFNAMSIZ - 1);
++    ret = ioctl(fd, SIOCGIFHWADDR, &ifr);
++    close(fd);
++    if (ret < 0) return -1;
++    memcpy(mac_out, ifr.ifr_hwaddr.sa_data, 6);
++    return 0;
++}
++
++int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6])
++{
++    struct ifaddrs *ifap, *ifa;
++    char found[IFNAMSIZ] = {0};
++
++    if (getifaddrs(&ifap) < 0) return -1;
++    for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
++        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
++        char buf[16];
++        inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr, buf, sizeof(buf));
++        if (strcmp(buf, ip_str) == 0) { strncpy(found, ifa->ifa_name, IFNAMSIZ - 1); break; }
++    }
++    freeifaddrs(ifap);
++    return (found[0] == '\0') ? -1 : get_mac_by_ifname(found, mac_out);
++}
++
 +/* Find interface name owning addr_str (IPv4 or IPv6, scope ID stripped). */
 +int get_ifname_by_addr(const char *addr_str, char *ifname, size_t len)
 +{
@@ -572,10 +600,10 @@ index d4e70a9..ceb3668 100644
 + * Auto-detect the local address to use in ONVIF service URLs.
 + *
 + * Priority:
-+ *   1. REMOTE_ADDR is loopback (local proxy) → WSD multicast connect trick
-+ *   2. REMOTE_ADDR is a real client         → connect trick to REMOTE_ADDR
++ *   1. REMOTE_ADDR is loopback (local proxy) -> WSD multicast connect trick
++ *   2. REMOTE_ADDR is a real client         -> connect trick to REMOTE_ADDR
 + *
-+ * Sets local_addr to a plain IP string (no scope ID — safe for URLs).
++ * Sets local_addr to a plain IP string (no scope ID -- safe for URLs).
 + * ---------------------------------------------------------------------- */
 +#define WSD_MCAST_V4  "239.255.255.250"
 +#define WSD_MCAST_V6  "ff02::c"
@@ -652,23 +680,93 @@ index d4e70a9..ceb3668 100644
 +        return connect_trick_v4(clean, local_addr, len);
 +}
 +
- void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6])
- {
-     char name[32];
+ /**
+  * Get the value of a parameter in the query string
+  * @param par The name of the parameter
 diff --git a/utils.h b/utils.h
-index f80a758..cef3d62 100644
+index 467e0f4..13b790e 100644
 --- a/utils.h
 +++ b/utils.h
-@@ -100,6 +100,9 @@ time_t from_iso_date(const char *date);
+@@ -98,6 +98,11 @@ int interval2sec(const char *interval);
+ int to_iso_date(char *iso_date, int size, time_t timestamp);
+ time_t from_iso_date(const char *date);
  int gen_uuid(char *g_uuid);
- int get_mac_by_ifname(const char *if_name, uint8_t mac_out[6]);
- int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6]);
++int get_mac_by_ifname(const char *if_name, uint8_t mac_out[6]);
++int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6]);
 +int get_ifname_by_addr(const char *addr_str, char *ifname, size_t len);
 +int get_mac_by_addr(const char *addr_str, uint8_t mac_out[6]);
 +int detect_local_address(const char *remote_addr, char *local_addr, size_t len);
- void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6]);
  int get_from_query_string(char **ret, int *ret_size, char *par);
  int set_video_codec(char *buffer, int buffer_len, int codec, int ver);
+ int set_audio_codec(char *buffer, int buffer_len, int codec, int ver);
+diff --git a/wsd_simple_server.c b/wsd_simple_server.c
+index ada2fa1..a84ea9b 100644
+--- a/wsd_simple_server.c
++++ b/wsd_simple_server.c
+@@ -229,62 +229,7 @@ static void gen_uuid_v5_mac(char *uuid_str, const uint8_t mac[6])
+              hash[10], hash[11], hash[12], hash[13], hash[14], hash[15]);
+ }
+ 
+-/*
+- * Look up the MAC address for a named network interface.
+- * Returns 0 on success, -1 on failure.
+- */
+-static int get_mac_by_ifname(const char *if_name, uint8_t mac_out[6])
+-{
+-    struct ifreq ifr;
+-    int fd, ret;
+-
+-    fd = socket(AF_INET, SOCK_DGRAM, 0);
+-    if (fd < 0)
+-        return -1;
+-
+-    memset(&ifr, 0, sizeof(ifr));
+-    strncpy(ifr.ifr_name, if_name, IFNAMSIZ - 1);
+-    ret = ioctl(fd, SIOCGIFHWADDR, &ifr);
+-    close(fd);
+-
+-    if (ret < 0)
+-        return -1;
+-
+-    memcpy(mac_out, ifr.ifr_hwaddr.sa_data, 6);
+-    return 0;
+-}
+-
+-/*
+- * Find which interface owns ip_str (dotted-decimal) and return its MAC.
+- * Used in auto-detect mode when no interface name is available.
+- * Returns 0 on success, -1 on failure.
+- */
+-static int get_mac_by_ip(const char *ip_str, uint8_t mac_out[6])
+-{
+-    struct ifaddrs *ifap, *ifa;
+-    char found[IFNAMSIZ] = {0};
+-
+-    if (getifaddrs(&ifap) < 0)
+-        return -1;
+-
+-    for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
+-        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
+-            continue;
+-        char buf[16];
+-        struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;
+-        inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf));
+-        if (strcmp(buf, ip_str) == 0) {
+-            strncpy(found, ifa->ifa_name, IFNAMSIZ - 1);
+-            break;
+-        }
+-    }
+-    freeifaddrs(ifap);
+-
+-    if (found[0] == '\0')
+-        return -1;
+-
+-    return get_mac_by_ifname(found, mac_out);
+-}
++/* get_mac_by_ifname and get_mac_by_ip moved to utils.c */
+ 
+ int daemonize(int flags)
+ {
 -- 
 2.53.0.windows.1
 
