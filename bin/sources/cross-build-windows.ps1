@@ -1,18 +1,20 @@
 # Build onvif_simple_server and wsd_simple_server for linux/arm64 (Jetson Orin NX).
 #
-# Requirements:
-#   Docker Desktop for Windows (4.x+) with multi-arch support enabled (default).
-#   Internet access to pull ubuntu:22.04 and clone poeggi/onvif_simple_server.
-#
-# First run is slow (5-15 min) -- Docker pulls Ubuntu arm64 image via QEMU emulation.
-# Subsequent runs are fast (image and layer cache reused).
+# Requirements (choose one):
+#   Option A -- Docker Desktop for Windows (4.x+) with multi-arch support enabled (default).
+#               First run pulls ubuntu:22.04 via QEMU (5-15 min); subsequent runs use cache.
+#   Option B -- WSL2 Ubuntu-22.04 with aarch64-linux-gnu-gcc installed:
+#               See bin/sources/cross-build-wsl.sh for the WSL-based build script.
+#               Install cross-compiler: sudo apt install gcc-aarch64-linux-gnu
+#                                       sudo dpkg --add-architecture arm64
+#                                       sudo apt install libjson-c-dev:arm64 zlib1g-dev:arm64
 #
 # Binaries are always statically linked -- the build fails if static linking is lost.
 # Source is cloned from our fork (poeggi/onvif_simple_server) at the given branch.
 #
 # Usage (run from repo root):
 #   .\bin\sources\cross-build-windows.ps1                              # builds feature/onvif-mac-uuid (default)
-#   .\bin\sources\cross-build-windows.ps1 -Branch feature/dual-stack-wsd  # build a specific branch
+#   .\bin\sources\cross-build-windows.ps1 -Branch feature/onvif-uuid  # build a specific branch
 #
 # Output: bin/onvif_simple_server  and  bin/wsd_simple_server  (linux/arm64, statically linked)
 # After building: git add bin/onvif_simple_server bin/wsd_simple_server && git commit
