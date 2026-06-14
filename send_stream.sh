@@ -225,11 +225,13 @@ EOF
 
       # CONF_FILE env var tells onvif_simple_server which conf to load (set via mod_setenv)
       mkdir -p /tmp/onvif_root/onvif
+      _LIGHTTPD_ERRORLOG="/tmp/lighttpd_onvif.log"
+      [[ "$DEBUG_MODE" -eq 1 ]] && _LIGHTTPD_ERRORLOG="/dev/stderr"
       cat > "$ONVIF_LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
 server.bind          = "::"
 server.document-root = "/tmp/onvif_root"
-server.errorlog      = "/tmp/lighttpd_onvif.log"
+server.errorlog      = "${_LIGHTTPD_ERRORLOG}"
 server.modules       = ("mod_cgi", "mod_setenv")
 setenv.add-environment = ("CONF_FILE" => "${_ONVIF_SERVER_CONF}")
 cgi.assign           = ( "/onvif/" => "${_ONVIF_BIN}" )
@@ -241,7 +243,11 @@ EOF
       # wsd auto-detects local address via routing table; pass interface only when explicitly set
       wsd_args=(-x "http://%s:${ONVIF_PORT}/onvif/device_service")
       [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")
-      "$_WSD_BIN" "${wsd_args[@]}" >/dev/null 2>&1 &
+      if [[ "$DEBUG_MODE" -eq 1 ]]; then
+        "$_WSD_BIN" "${wsd_args[@]}" &
+      else
+        "$_WSD_BIN" "${wsd_args[@]}" >/dev/null 2>&1 &
+      fi
       WSD_PID=$!
 
       ONVIF_WE_STARTED=1
