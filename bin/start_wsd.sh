@@ -38,7 +38,6 @@ do_start() {
 
   wsd_args=(
     -x "http://%s:${ONVIF_PORT}/onvif/device_service"
-    -6 "http://[%s]:${ONVIF_PORT}/onvif/device_service"
     -p "$WSD_PID_FILE"
   )
   # Pass explicit interface override only when set; otherwise wsd auto-detects

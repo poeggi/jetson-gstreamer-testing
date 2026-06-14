@@ -17,8 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libjson-c-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone our fork which includes UUID v5, dual-stack WSD, and auto-detected address.
-ARG BRANCH=feature/onvif-mac-uuid
+# Clone our fork which includes UUID v5 and auto-detected address.
+ARG BRANCH=feature/onvif-uuid
 # CACHE_BUST: pass --build-arg "CACHE_BUST=$(date +%s)" to force a fresh clone when
 # the branch HEAD has changed but the BRANCH arg itself has not.
 ARG CACHE_BUST=0

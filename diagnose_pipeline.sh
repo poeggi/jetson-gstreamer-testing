@@ -103,10 +103,17 @@ run_test() {
     FAIL=$(( FAIL + 1 ))
     STOP=1
     return 1
-  elif echo "$out" | grep -qiE "syntax error|erroneous pipeline|no element|could not link"; then
+  elif echo "$out" | grep -qiE "^ERROR:|syntax error|erroneous pipeline|no element|could not link|failed to start|no device"; then
     local msg
-    msg=$(echo "$out" | grep -iE "syntax error|erroneous pipeline|no element|could not link" | head -1)
+    msg=$(echo "$out" | grep -iE "^ERROR:|syntax error|erroneous pipeline|no element|could not link|failed to start|no device" | head -1)
     echo "[FAIL] <-- ${msg}"
+    FAIL=$(( FAIL + 1 ))
+    STOP=1
+    return 1
+  elif [[ $rc -ne 0 ]]; then
+    local msg
+    msg=$(echo "$out" | grep -v "^$" | tail -2 | head -1)
+    echo "[FAIL] <-- exit code ${rc}  ${msg}"
     FAIL=$(( FAIL + 1 ))
     STOP=1
     return 1
@@ -442,10 +449,19 @@ echo "  [FORMAT CHECK] Camera pixel format and framerate"
 out=$(timeout 15 gst-launch-1.0 -v pylonsrc num-buffers=1 ! "video/x-raw(memory:NVMM),format=YUY2,width=${W},height=${H},framerate=${FPS}/1" ! fakesink 2>&1) || true
 fmt=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "format=(string)[^,)]*" | sed 's/format=(string)//')
 negotiated_fps=$(echo "$out" | grep "pylonsrc0.GstPad:src: caps" | grep -o "framerate=(fraction)[^,)]*" | sed 's/framerate=(fraction)//')
-if echo "$fmt" | grep -qE "^BGR$|^RGB$|^YUY2$|^UYVY$"; then
+if echo "$out" | grep -qiE "no device|failed to start|cannot open"; then
+  printf "  %-57s[FAIL] camera not found -- no device attached\n" "Camera format"
+  echo ""
+  echo "         pylon SDK cannot see the camera. Check:"
+  echo "           - Camera powered on and USB cable firmly seated"
+  echo "           - No other process holds the camera: pgrep gst-launch"
+  echo "           - udev rules installed: ls /etc/udev/rules.d/ | grep -i pylon"
+  FAIL=$(( FAIL + 1 ))
+  STOP=1
+elif echo "$fmt" | grep -qE "^BGR$|^RGB$|^YUY2$|^UYVY$"; then
   printf "  %-57s[OK]  camera outputs %s (color)\n" "Camera format" "$fmt"
 else
-  printf "  %-57s[FAIL] camera outputs %s (should be YUY2 for NVMM path)\n" "Camera format" "$fmt"
+  printf "  %-57s[FAIL] camera outputs '%s' (expected YUY2)\n" "Camera format" "$fmt"
   echo ""
   echo "         SOLUTION: Configure camera pixel format in pylon Viewer"
   echo "           - Launch: /opt/pylon/bin/pylonviewer"

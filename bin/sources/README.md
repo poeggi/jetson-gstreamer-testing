@@ -55,6 +55,7 @@ All changes are in `patches/` as `git format-patch` series named `pr47-*` and `p
 | Script | When to use |
 |--------|-------------|
 | `cross-build-windows.ps1` | **Windows:** Docker Desktop cross-compiles for arm64 via QEMU |
+| `cross-build-wsl.sh` | **WSL2:** Ubuntu-22.04 cross-compiler (`aarch64-linux-gnu-gcc`), no Docker needed |
 | `build-on-device.sh` | **Jetson:** native arm64 build, clones fork directly |
 
 ### Windows (cross-compile)
@@ -107,6 +108,7 @@ v1.18.2 with a minimal subset (SHA1 + Base64 only).
 |------|---------|
 | `Dockerfile` | Multi-stage arm64 image; clones from GitHub fork and builds |
 | `cross-build-windows.ps1` | Windows PowerShell driver: builds Docker image, extracts binaries to `bin/` |
+| `cross-build-wsl.sh` | WSL2 cross-compile script; uses `aarch64-linux-gnu-gcc` directly, no Docker |
 | `build-on-device.sh` | Native Jetson build script; clones fork, builds into `bin/` |
 | `patches/` | `git format-patch` series: all our changes vs upstream master |
 | `onvif_simple_server/` | *(gitignored)* Local fork clone, created by `build-on-device.sh` |

@@ -167,7 +167,7 @@ if [[ "$OUTPUT_MODE" == "rtsp" && "${ONVIF_ENABLED:-false}" == "true" ]]; then
   else
     _ONVIF_BIN=$(_find_bin onvif_simple_server)
     _WSD_BIN=$(_find_bin wsd_simple_server)
-    _LIGHTTPD_BIN=$(_find_bin lighttpd)
+    _LIGHTTPD_BIN=$(command -v lighttpd 2>/dev/null || true)
 
     if [[ -z "$_ONVIF_BIN" || -z "$_WSD_BIN" || -z "$_LIGHTTPD_BIN" ]]; then
       echo "WARNING: ONVIF_ENABLED=true but stack not fully installed -- skipping" >&2
@@ -181,7 +181,7 @@ model=Jetson-Basler-4K
 manufacturer=Custom
 firmware_ver=0.1
 hardware_id=JetsonOrinNX
-serial_num=000000000001
+serial_num=${ONVIF_SERIAL:-SN1234567890}
 
 port=${ONVIF_PORT}
 
@@ -224,7 +224,7 @@ EOF
       mkdir -p /tmp/onvif_root/onvif
       cat > "$ONVIF_LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
-server.bind          = "0.0.0.0"
+server.bind          = "::"
 server.document-root = "/tmp/onvif_root"
 server.errorlog      = "/tmp/lighttpd_onvif.log"
 server.modules       = ("mod_cgi", "mod_setenv")
@@ -235,17 +235,11 @@ EOF
       "$_LIGHTTPD_BIN" -D -f "$ONVIF_LIGHTTPD_CONF" &
       LIGHTTPD_PID=$!
 
-      _ONVIF_IP=$(ip -4 addr show "${ONVIF_INTERFACE}" 2>/dev/null \
-        | awk '/inet /{print $2}' | cut -d/ -f1 | head -1 || true)
-
-      if [[ -n "$_ONVIF_IP" ]]; then
-        "$_WSD_BIN" \
-          -x "http://${_ONVIF_IP}:${ONVIF_PORT}/onvif/device_service" \
-          >/dev/null 2>&1 &
-        WSD_PID=$!
-      else
-        echo "WARNING: Cannot determine IP for interface ${ONVIF_INTERFACE} -- WS-Discovery skipped" >&2
-      fi
+      # wsd auto-detects local address via routing table; pass interface only when explicitly set
+      wsd_args=(-x "http://%s:${ONVIF_PORT}/onvif/device_service")
+      [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")
+      "$_WSD_BIN" "${wsd_args[@]}" >/dev/null 2>&1 &
+      WSD_PID=$!
 
       ONVIF_WE_STARTED=1
 
@@ -255,7 +249,7 @@ EOF
         nc -z -w1 127.0.0.1 "$ONVIF_PORT" 2>/dev/null && { READY=1; break; }
       done
       if [[ "$READY" -eq 1 ]]; then
-        echo "ONVIF started -- http://${_ONVIF_IP:-127.0.0.1}:${ONVIF_PORT}/onvif/device_service"
+        echo "ONVIF started -- http://<device-ip>:${ONVIF_PORT}/onvif/device_service"
       else
         echo "WARNING: ONVIF lighttpd did not start within 3 seconds -- continuing without ONVIF" >&2
       fi
