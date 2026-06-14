@@ -1,10 +1,14 @@
 # Basler a2A4096-30ucPRO -- GStreamer Pipeline
 
-**Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin NX (JetPack 6.x or later)\
+**Camera:** Basler a2A4096-30ucPRO &nbsp;|&nbsp; **Target:** NVIDIA Jetson Orin generation or later (JetPack 6.x)\
 &nbsp;|&nbsp; **Script:** `send_stream.sh`
 
 Zero-copy GStreamer pipeline: Basler USB camera -> NVENC hardware encode -> RTSP.
 Includes `check_system.sh` for pre-flight checks and optional ONVIF server for NVR auto-discovery.
+
+> **Requirements:** Jetson Orin generation or later is required. Earlier modules (Xavier, Nano,
+> TX2) are not supported -- they lack NVENC silicon, use a different device tree serial number
+> path, and are not tested with this pipeline.
 
 ---
 

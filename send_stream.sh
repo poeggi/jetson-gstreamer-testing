@@ -10,6 +10,7 @@
 #
 # Usage: ./send_stream.sh [options]
 #   --fakesink            encode and discard (no RTSP server needed)
+#   --debug               log frame drops to console (check-imperfect-timestamp)
 #   --main / --no-main    enable/disable MAIN stream (overrides stream.conf)
 #   --main-h264           override MAIN encoder to H.264
 #   --main-h265           override MAIN encoder to H.265
@@ -55,9 +56,11 @@ source "$CONF"
 # ------------------------------------------------------------------------------
 # Argument parsing -- overrides stream.conf
 # ------------------------------------------------------------------------------
+DEBUG_MODE=0
 for arg in "$@"; do
   case "$arg" in
     --fakesink)   OUTPUT_MODE="fakesink" ;;
+    --debug)      DEBUG_MODE=1 ;;
     --main)       MAIN_ENABLED="true" ;;
     --no-main)    MAIN_ENABLED="false" ;;
     --main-h264)  MAIN_ENCODER="h264" ;;
@@ -68,7 +71,7 @@ for arg in "$@"; do
     --sub-h265)   SUB_ENCODER="h265" ;;
     *)
       echo "ERROR: Unknown argument: $arg"
-      echo "Usage: $0 [--fakesink] [--main|--no-main] [--main-h264|--main-h265] [--sub|--no-sub] [--sub-h264|--sub-h265]"
+      echo "Usage: $0 [--fakesink] [--debug] [--main|--no-main] [--main-h264|--main-h265] [--sub|--no-sub] [--sub-h264|--sub-h265]"
       exit 1
       ;;
   esac
@@ -309,11 +312,13 @@ CAPS_SRC="video/x-raw(memory:NVMM),format=${PIXEL_FORMAT},width=${MAIN_WIDTH},he
 CAPS_NVMM="video/x-raw(memory:NVMM),format=NV12,width=${MAIN_WIDTH},height=${MAIN_HEIGHT},framerate=${FRAMERATE}/1"
 Q="queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream"
 Q_ENC="queue max-size-buffers=4 max-size-bytes=0 max-size-time=0"
-IDN_CAM="identity name=cam silent=true check-imperfect-timestamp=true"
-IDN_PRE="identity name=pre-enc silent=true check-imperfect-timestamp=true"
-IDN_POST="identity name=post-enc silent=true check-imperfect-timestamp=true"
-IDN_SUB_PRE="identity name=sub-pre-enc silent=true check-imperfect-timestamp=true"
-IDN_SUB_POST="identity name=sub-post-enc silent=true check-imperfect-timestamp=true"
+_IDN_SILENT="true"
+[[ "${DEBUG_MODE:-0}" -eq 1 ]] && _IDN_SILENT="false"
+IDN_CAM="identity name=cam silent=${_IDN_SILENT} check-imperfect-timestamp=true"
+IDN_PRE="identity name=pre-enc silent=${_IDN_SILENT} check-imperfect-timestamp=true"
+IDN_POST="identity name=post-enc silent=${_IDN_SILENT} check-imperfect-timestamp=true"
+IDN_SUB_PRE="identity name=sub-pre-enc silent=${_IDN_SILENT} check-imperfect-timestamp=true"
+IDN_SUB_POST="identity name=sub-post-enc silent=${_IDN_SILENT} check-imperfect-timestamp=true"
 
 # Source segment: camera capture through format conversion (shared by all branches)
 SRC="pylonsrc ${SERIAL_PROP} ! ${CAPS_SRC} ! ${IDN_CAM} ! ${Q} ! nvvidconv nvbuf-memory-type=4 ! ${CAPS_NVMM}"
@@ -342,6 +347,9 @@ echo "======================================================"
 echo "  Basler a2A4096-30ucPRO -- Jetson Orin NX"
 echo "======================================================"
 echo "  Camera         : ${CAMERA_SERIAL:-auto-detect}"
+if [[ "$DEBUG_MODE" -eq 1 ]]; then
+echo "  Debug          : frame drop logging active (check-imperfect-timestamp)"
+fi
 echo "  Capture        : ${MAIN_WIDTH}x${MAIN_HEIGHT} @ ${FRAMERATE}fps ${PIXEL_FORMAT} (~${BW} MB/s)"
 if [[ "$MAIN_ENABLED" == "true" ]]; then
 echo "  MAIN stream    : ${MAIN_ENCODER^^} ${MAIN_BITRATE}bps ${MAIN_WIDTH}x${MAIN_HEIGHT} -> ${OUTPUT_MODE} (${MAIN_RTSP_PATH})"
