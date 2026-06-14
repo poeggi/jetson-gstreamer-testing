@@ -162,9 +162,11 @@ else
   info "L4T: /etc/nv_tegra_release not found"
 fi
 
-# GStreamer version
-_GST_VER=$(gst-launch-1.0 --version 2>/dev/null | sed -n 's/^GStreamer //p' | head -1 || true)
-info "GStreamer: ${_GST_VER:-not found}"
+# GStreamer version (skip the gst-launch-1.0 invocation in quiet mode)
+if [[ "$QUIET" -eq 0 ]]; then
+  _GST_VER=$(gst-launch-1.0 --version 2>/dev/null | sed -n 's/^GStreamer //p' | head -1 || true)
+  info "GStreamer: ${_GST_VER:-not found}"
+fi
 
 # Basler pylon GStreamer plugin version + NVMM status (derived from _PYLON_CAPS)
 if [[ -n "$_PYLON_CAPS" ]]; then
@@ -775,69 +777,68 @@ else
   ok "No other pylonsrc pipeline running"
 fi
 
-check_plugin pylonsrc  "Basler pylon GStreamer plugin: baslerweb.com/downloads"
+if [[ "$FATAL_ONLY" -eq 0 ]]; then
+  check_plugin pylonsrc  "Basler pylon GStreamer plugin: baslerweb.com/downloads"
 
-# NVMM support check -- color mode requires pylonsrc to output NVMM directly
-# so frames go USB DMA -> GPU with no system RAM intermediate.
-if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
-  if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
-    ok "pylonsrc NVMM caps: zero-copy color capture path available"
-  else
-    fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
-    fail_hint "Color capture requires a system RAM -> GPU copy per frame."
-    fail_hint "Upgrade to an NVMM-capable pylon GStreamer plugin:"
-    fail_hint "github.com/basler/gst-plugin-pylon/releases"
+  # NVMM support check -- color mode requires pylonsrc to output NVMM directly
+  # so frames go USB DMA -> GPU with no system RAM intermediate.
+  if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
+    if gst-inspect-1.0 pylonsrc 2>/dev/null | grep -i "memory:NVMM" > /dev/null; then
+      ok "pylonsrc NVMM caps: zero-copy color capture path available"
+    else
+      fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
+      fail_hint "Color capture requires a system RAM -> GPU copy per frame."
+      fail_hint "Upgrade to an NVMM-capable pylon GStreamer plugin:"
+      fail_hint "github.com/basler/gst-plugin-pylon/releases"
+    fi
   fi
-fi
 
-check_plugin nvvidconv  "re-run JetPack installer"
-check_plugin identity   "sudo apt install gstreamer1.0-plugins-base"
+  check_plugin nvvidconv  "re-run JetPack installer"
+  check_plugin identity   "sudo apt install gstreamer1.0-plugins-base"
 
-
-case "$ENCODER" in
-  h264)
-    check_plugin nvv4l2h264enc "re-run JetPack installer"
-    check_plugin h264parse     "sudo apt install gstreamer1.0-plugins-bad"
-    ;;
-  h265)
-    check_plugin nvv4l2h265enc "re-run JetPack installer"
-    check_plugin h265parse     "sudo apt install gstreamer1.0-plugins-bad"
-    ;;
-esac
-
-# NVENC hardware functional test -- separate from plugin presence.
-# The plugin may be installed for forward compatibility while NVENC silicon is
-# absent (e.g. current Orin Nano; future variants may add hardware NVENC).
-# Runs a minimal 64x64 test encode; catches missing hardware at pre-flight
-# rather than letting the pipeline fail mid-stream with a cryptic error.
-_NVENC_ELEM=""
-case "$ENCODER" in
-  h264) _NVENC_ELEM="nvv4l2h264enc" ;;
-  h265) _NVENC_ELEM="nvv4l2h265enc" ;;
-esac
-if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
-  # 320x240: well above the H.265 NVENC minimum CTU size on Orin NX.
-  # 64x64 is below the hardware minimum and causes a false failure.
-  _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=320,height=240,framerate=30/1"
-  if gst-launch-1.0 -e videotestsrc num-buffers=10 \
-       ! video/x-raw,format=NV12,width=320,height=240,framerate=30/1 \
-       ! nvvidconv nvbuf-memory-type=4 \
-       ! "${_NVENC_CAPS}" \
-       ! "${_NVENC_ELEM}" ! fakesink sync=false >/dev/null 2>&1; then
-    ok "NVENC hardware: ${_NVENC_ELEM} functional (test encode passed)"
-  else
-    fail "NVENC hardware: ${_NVENC_ELEM} plugin present but test encode failed"
-    fail_hint "NVENC silicon may be absent on this SoM. This pipeline requires"
-    fail_hint "hardware H.264/H.265 encoding; software cannot sustain 4K/30fps."
-  fi
-fi
-
-if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
   case "$ENCODER" in
-    h264) check_plugin rtph264pay "sudo apt install gstreamer1.0-plugins-good" ;;
-    h265) check_plugin rtph265pay "sudo apt install gstreamer1.0-plugins-good" ;;
+    h264)
+      check_plugin nvv4l2h264enc "re-run JetPack installer"
+      check_plugin h264parse     "sudo apt install gstreamer1.0-plugins-bad"
+      ;;
+    h265)
+      check_plugin nvv4l2h265enc "re-run JetPack installer"
+      check_plugin h265parse     "sudo apt install gstreamer1.0-plugins-bad"
+      ;;
   esac
-  check_plugin rtspclientsink "sudo apt install gstreamer1.0-plugins-bad"
+
+  # NVENC hardware functional test -- separate from plugin presence.
+  # The plugin may be installed for forward compatibility while NVENC silicon is
+  # absent (e.g. current Orin Nano; future variants may add hardware NVENC).
+  # Runs a minimal test encode; catches missing hardware before launch.
+  _NVENC_ELEM=""
+  case "$ENCODER" in
+    h264) _NVENC_ELEM="nvv4l2h264enc" ;;
+    h265) _NVENC_ELEM="nvv4l2h265enc" ;;
+  esac
+  if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
+    # 320x240: well above the H.265 NVENC minimum CTU size on Orin NX.
+    _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=320,height=240,framerate=30/1"
+    if gst-launch-1.0 -e videotestsrc num-buffers=10 \
+         ! video/x-raw,format=NV12,width=320,height=240,framerate=30/1 \
+         ! nvvidconv nvbuf-memory-type=4 \
+         ! "${_NVENC_CAPS}" \
+         ! "${_NVENC_ELEM}" ! fakesink sync=false >/dev/null 2>&1; then
+      ok "NVENC hardware: ${_NVENC_ELEM} functional (test encode passed)"
+    else
+      fail "NVENC hardware: ${_NVENC_ELEM} plugin present but test encode failed"
+      fail_hint "NVENC silicon may be absent on this SoM. This pipeline requires"
+      fail_hint "hardware H.264/H.265 encoding; software cannot sustain 4K/30fps."
+    fi
+  fi
+
+  if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
+    case "$ENCODER" in
+      h264) check_plugin rtph264pay "sudo apt install gstreamer1.0-plugins-good" ;;
+      h265) check_plugin rtph265pay "sudo apt install gstreamer1.0-plugins-good" ;;
+    esac
+    check_plugin rtspclientsink "sudo apt install gstreamer1.0-plugins-bad"
+  fi
 fi
 
 # GST_DEBUG: if set it causes per-buffer logging overhead in every element
