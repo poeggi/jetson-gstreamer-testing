@@ -95,18 +95,31 @@ EOF
 
 generate_lighttpd_conf() {
   local onvif_bin="${SCRIPT_DIR}/onvif_simple_server"
+
+  # onvif_simple_server opens /var/log/onvif_simple_server.log before parsing
+  # args and exits if it can't write it -- pre-create it once.
+  sudo touch /var/log/onvif_simple_server.log 2>/dev/null \
+    && sudo chmod 666 /var/log/onvif_simple_server.log 2>/dev/null || true
+
+  # Shell wrapper per service: calls binary with -c to pass our conf and
+  # appends the service name so the binary routes to the right handler.
   mkdir -p /tmp/onvif_root/onvif
-  # Bind to :: for dual-stack: accepts both IPv4 and IPv6 (requires net.ipv6.bindv6only=0,
-  # which is the Linux default; Ubuntu 22.04 ships with it at 0).
+  for _svc in device_service media_service media2_service \
+              ptz_service events_service deviceio_service; do
+    printf '#!/bin/sh\nexec "%s" -c "%s" %s\n' \
+      "${onvif_bin}" "${ONVIF_SERVER_CONF}" "${_svc}" \
+      > "/tmp/onvif_root/onvif/${_svc}"
+    chmod +x "/tmp/onvif_root/onvif/${_svc}"
+  done
+
   cat > "$LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
 server.bind          = "0.0.0.0"
 server.document-root = "/tmp/onvif_root"
 server.pid-file      = "${LIGHTTPD_PID_FILE}"
 server.errorlog      = "/tmp/lighttpd_onvif.log"
-server.modules       = ("mod_cgi", "mod_setenv")
-setenv.add-environment = ("CONF_FILE" => "${ONVIF_SERVER_CONF}")
-cgi.assign = ( "/onvif/" => "${onvif_bin}" )
+server.modules       = ("mod_cgi")
+cgi.assign           = ( "" => "" )
 EOF
 }
 

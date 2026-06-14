@@ -106,6 +106,7 @@ MEDIAMTX_PID=""
 MEDIAMTX_WE_STARTED=0
 LIGHTTPD_PID=""
 WSD_PID=""
+WSD_PID_FILE="/tmp/wsd_simple_server_$$.pid"
 ONVIF_WE_STARTED=0
 ONVIF_LIGHTTPD_CONF="/tmp/lighttpd_onvif_$$.conf"
 
@@ -113,7 +114,11 @@ cleanup() {
   # Stop ONVIF first -- NVRs stop discovering before RTSP goes away
   if [[ "$ONVIF_WE_STARTED" -eq 1 ]]; then
     echo "Stopping ONVIF stack..."
-    [[ -n "$WSD_PID"      ]] && { kill "$WSD_PID"      2>/dev/null || true; wait "$WSD_PID"      2>/dev/null || true; }
+    # wsd daemonizes itself: real PID is in the pid file, not $!
+    _wsd_kill_pid="${WSD_PID}"
+    [[ -f "$WSD_PID_FILE" ]] && _wsd_kill_pid="$(cat "$WSD_PID_FILE" 2>/dev/null || true)"
+    [[ -n "$_wsd_kill_pid" ]] && kill "$_wsd_kill_pid" 2>/dev/null || true
+    rm -f "$WSD_PID_FILE"
     [[ -n "$LIGHTTPD_PID" ]] && { kill "$LIGHTTPD_PID" 2>/dev/null || true; wait "$LIGHTTPD_PID" 2>/dev/null || true; }
     rm -f "$ONVIF_LIGHTTPD_CONF"
   fi
@@ -227,8 +232,24 @@ audio_decoder=NONE
 EOF
       fi
 
-      # CONF_FILE env var tells onvif_simple_server which conf to load (set via mod_setenv)
+      # onvif_simple_server opens /var/log/onvif_simple_server.log before
+      # parsing args and exits if it can't write it -- pre-create it once.
+      sudo touch /var/log/onvif_simple_server.log 2>/dev/null \
+        && sudo chmod 666 /var/log/onvif_simple_server.log 2>/dev/null || true
+
+      # Create a shell wrapper per service endpoint in the document root.
+      # lighttpd (cgi.assign = "" => "") executes them directly; each wrapper
+      # calls the binary with -c to pass our generated conf, and appends the
+      # service name as a trailing arg so the binary routes to the right handler.
       mkdir -p /tmp/onvif_root/onvif
+      for _svc in device_service media_service media2_service \
+                  ptz_service events_service deviceio_service; do
+        printf '#!/bin/sh\nexec "%s" -c "%s" %s\n' \
+          "${_ONVIF_BIN}" "${_ONVIF_SERVER_CONF}" "${_svc}" \
+          > "/tmp/onvif_root/onvif/${_svc}"
+        chmod +x "/tmp/onvif_root/onvif/${_svc}"
+      done
+
       _LIGHTTPD_ERRORLOG="/tmp/lighttpd_onvif.log"
       [[ "$DEBUG_MODE" -eq 1 ]] && _LIGHTTPD_ERRORLOG="/dev/stderr"
       cat > "$ONVIF_LIGHTTPD_CONF" <<EOF
@@ -236,23 +257,31 @@ server.port          = ${ONVIF_PORT}
 server.bind          = "0.0.0.0"
 server.document-root = "/tmp/onvif_root"
 server.errorlog      = "${_LIGHTTPD_ERRORLOG}"
-server.modules       = ("mod_cgi", "mod_setenv")
-setenv.add-environment = ("CONF_FILE" => "${_ONVIF_SERVER_CONF}")
-cgi.assign           = ( "/onvif/" => "${_ONVIF_BIN}" )
+server.modules       = ("mod_cgi")
+cgi.assign           = ( "" => "" )
 EOF
       echo "Starting lighttpd (ONVIF CGI, port ${ONVIF_PORT})..."
       "$_LIGHTTPD_BIN" -D -f "$ONVIF_LIGHTTPD_CONF" &
       LIGHTTPD_PID=$!
 
-      # wsd auto-detects local address via routing table; pass interface only when explicitly set
-      wsd_args=(-x "http://%s:${ONVIF_PORT}/onvif/device_service")
+      # wsd daemonizes itself (double-fork); -p is required or it prints usage
+      # and exits. Real daemon PID is written to the pid file after fork.
+      wsd_args=(
+        -x "http://%s:${ONVIF_PORT}/onvif/device_service"
+        -p "$WSD_PID_FILE"
+      )
       [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")
       if [[ "$DEBUG_MODE" -eq 1 ]]; then
+        # -f keeps it foreground so $! is the real PID and -d 5 enables trace logging.
+        # Logs go to /var/log/wsd_simple_server.log (may need sudo to read).
+        wsd_args+=(-f -d 5)
         "$_WSD_BIN" "${wsd_args[@]}" &
+        WSD_PID=$!
       else
-        "$_WSD_BIN" "${wsd_args[@]}" >/dev/null 2>&1 &
+        "$_WSD_BIN" "${wsd_args[@]}" >/dev/null 2>&1
+        sleep 0.5
+        WSD_PID=$(cat "$WSD_PID_FILE" 2>/dev/null || true)
       fi
-      WSD_PID=$!
 
       ONVIF_WE_STARTED=1
 
