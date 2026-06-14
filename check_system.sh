@@ -990,6 +990,20 @@ else
     "sudo touch ${_ONVIF_LOG} && sudo chmod 666 ${_ONVIF_LOG}"
 fi
 
+# wsd_simple_server opens /var/log/wsd_simple_server.log before arg
+# parsing and segfaults (fclose(NULL)) if it cannot write it.
+_WSD_LOG="/var/log/wsd_simple_server.log"
+if [[ -w "$_WSD_LOG" ]]; then
+  ok "WSD log writable: ${_WSD_LOG}"
+else
+  warn "WSD log not writable: ${_WSD_LOG}"
+  hint "wsd_simple_server segfaults on startup without this."
+  hint "Fix once: sudo touch ${_WSD_LOG}"
+  hint "          sudo chmod 666 ${_WSD_LOG}"
+  autofix "Create writable WSD log file" \
+    "sudo touch ${_WSD_LOG} && sudo chmod 666 ${_WSD_LOG}"
+fi
+
 if [[ "$_ONVIF_SERIAL" == "SN1234567890" ]]; then
   warn "ONVIF_SERIAL is default -- NVR cannot distinguish devices"
   hint "Persist: set ONVIF_SERIAL in stream.conf to the board serial"

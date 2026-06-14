@@ -196,6 +196,7 @@ Use `receive_stream.sh [main|sub]` for the above with the correct codec pre-conf
 |   |-- wsd_simple_server    # WS-Discovery daemon (static, linux/arm64)
 |   |-- start_onvif.sh       # Start/stop full ONVIF stack (lighttpd + wsd)
 |   |-- start_wsd.sh         # Start/stop WS-Discovery only
+|   |-- wsd_files/           # WSD XML templates (Hello, Bye, ProbeMatches)
 |   +-- sources/             # Build system + modified C sources
 |       |-- patches/         # git format-patch series vs upstream master
 |       |-- Dockerfile       # arm64 Docker image; clones from GitHub fork and builds

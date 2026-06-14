@@ -106,7 +106,6 @@ MEDIAMTX_PID=""
 MEDIAMTX_WE_STARTED=0
 LIGHTTPD_PID=""
 WSD_PID=""
-WSD_PID_FILE="/tmp/wsd_simple_server_$$.pid"
 ONVIF_WE_STARTED=0
 ONVIF_LIGHTTPD_CONF="/tmp/lighttpd_onvif_$$.conf"
 
@@ -114,11 +113,7 @@ cleanup() {
   # Stop ONVIF first -- NVRs stop discovering before RTSP goes away
   if [[ "$ONVIF_WE_STARTED" -eq 1 ]]; then
     echo "Stopping ONVIF stack..."
-    # wsd daemonizes itself: real PID is in the pid file, not $!
-    _wsd_kill_pid="${WSD_PID}"
-    [[ -f "$WSD_PID_FILE" ]] && _wsd_kill_pid="$(cat "$WSD_PID_FILE" 2>/dev/null || true)"
-    [[ -n "$_wsd_kill_pid" ]] && kill "$_wsd_kill_pid" 2>/dev/null || true
-    rm -f "$WSD_PID_FILE"
+    [[ -n "$WSD_PID" ]] && kill "$WSD_PID" 2>/dev/null || true
     [[ -n "$LIGHTTPD_PID" ]] && { kill "$LIGHTTPD_PID" 2>/dev/null || true; wait "$LIGHTTPD_PID" 2>/dev/null || true; }
     rm -f "$ONVIF_LIGHTTPD_CONF"
   fi
@@ -268,24 +263,21 @@ EOF
       "$_LIGHTTPD_BIN" -D -f "$ONVIF_LIGHTTPD_CONF" &
       LIGHTTPD_PID=$!
 
-      # wsd daemonizes itself (double-fork); -p is required or it prints usage
-      # and exits. Real daemon PID is written to the pid file after fork.
+      # -f keeps wsd foreground so $! is the real PID (no sleep/pid-file needed).
+      # Templates bundled in bin/wsd_files/; /etc/wsd_simple_server/ not required.
       wsd_args=(
         -x "http://%s:${ONVIF_PORT}/onvif/device_service"
-        -p "$WSD_PID_FILE"
+        -t "${SCRIPT_DIR}/bin/wsd_files"
+        -f
       )
       [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")
+      [[ "$DEBUG_MODE" -eq 1 ]] && wsd_args+=(-d 5)
       if [[ "$DEBUG_MODE" -eq 1 ]]; then
-        # -f keeps it foreground so $! is the real PID and -d 5 enables trace logging.
-        # Logs go to /var/log/wsd_simple_server.log (may need sudo to read).
-        wsd_args+=(-f -d 5)
         "$_WSD_BIN" "${wsd_args[@]}" &
-        WSD_PID=$!
       else
-        "$_WSD_BIN" "${wsd_args[@]}" >/dev/null 2>&1
-        sleep 0.5
-        WSD_PID=$(cat "$WSD_PID_FILE" 2>/dev/null || true)
+        "$_WSD_BIN" "${wsd_args[@]}" >/dev/null 2>&1 &
       fi
+      WSD_PID=$!
 
       ONVIF_WE_STARTED=1
 

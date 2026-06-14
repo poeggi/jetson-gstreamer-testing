@@ -135,13 +135,17 @@ do_start() {
   generate_lighttpd_conf
 
   local wsd_bin="${SCRIPT_DIR}/wsd_simple_server" wsd_args
+  # -f keeps wsd foreground so $! is the real PID; we write it to the pid file
+  # for do_stop. Templates bundled alongside; /etc/wsd_simple_server/ not needed.
   wsd_args=(
     -x "http://%s:${ONVIF_PORT}/onvif/device_service"
-    -p "$WSD_PID_FILE"
+    -t "${SCRIPT_DIR}/wsd_files"
+    -f
   )
   # Pass explicit interface override only when set; otherwise wsd auto-detects
   [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")
   "$wsd_bin" "${wsd_args[@]}" >/dev/null 2>&1 &
+  echo $! > "$WSD_PID_FILE"
 
   lighttpd -f "$LIGHTTPD_CONF"
 
