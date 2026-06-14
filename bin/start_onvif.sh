@@ -136,10 +136,12 @@ do_start() {
 
   local wsd_bin="${SCRIPT_DIR}/wsd_simple_server" wsd_args
   # -f keeps wsd foreground so $! is the real PID; we write it to the pid file
-  # for do_stop. Templates bundled alongside; /etc/wsd_simple_server/ not needed.
+  # for do_stop. -p is mandatory even in foreground mode (wsd prints usage without it).
+  # Templates bundled alongside; /etc/wsd_simple_server/ not needed.
   wsd_args=(
     -x "http://%s:${ONVIF_PORT}/onvif/device_service"
     -t "${SCRIPT_DIR}/wsd_files"
+    -p "$WSD_PID_FILE"
     -f
   )
   # Pass explicit interface override only when set; otherwise wsd auto-detects

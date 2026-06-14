@@ -92,11 +92,13 @@ done
 # ------------------------------------------------------------------------------
 # Pre-flight system checks
 # ------------------------------------------------------------------------------
+echo "Running pre-flight checks..."
 export RTSP_HOST RTSP_PORT
 if ! "${SCRIPT_DIR}/check_system.sh" --fatal-only "$MAIN_ENCODER" "$OUTPUT_MODE"; then
   echo "ERROR: Pre-flight checks failed. Run ./check_system.sh for details." >&2
   exit 1
 fi
+echo "Pre-flight OK."
 
 
 # ------------------------------------------------------------------------------
@@ -106,6 +108,7 @@ MEDIAMTX_PID=""
 MEDIAMTX_WE_STARTED=0
 LIGHTTPD_PID=""
 WSD_PID=""
+WSD_PID_FILE="/tmp/wsd_simple_server_$$.pid"
 ONVIF_WE_STARTED=0
 ONVIF_LIGHTTPD_CONF="/tmp/lighttpd_onvif_$$.conf"
 
@@ -264,10 +267,12 @@ EOF
       LIGHTTPD_PID=$!
 
       # -f keeps wsd foreground so $! is the real PID (no sleep/pid-file needed).
+      # -p is mandatory even in foreground mode or wsd prints usage and exits.
       # Templates bundled in bin/wsd_files/; /etc/wsd_simple_server/ not required.
       wsd_args=(
         -x "http://%s:${ONVIF_PORT}/onvif/device_service"
         -t "${SCRIPT_DIR}/bin/wsd_files"
+        -p "$WSD_PID_FILE"
         -f
       )
       [[ -n "${ONVIF_INTERFACE:-}" ]] && wsd_args+=(-i "$ONVIF_INTERFACE")

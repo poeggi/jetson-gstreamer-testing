@@ -135,8 +135,12 @@ check_plugin() {
 set +o pipefail
 
 # Compute pylonsrc caps once here for the version display below.
-# Section 7 runs its own fresh gst-inspect under pipefail.
-_PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
+# Skipped in quiet/fatal-only mode -- gst-inspect-1.0 takes ~1-2s and the
+# output is only used in info() calls that are suppressed anyway.
+_PYLON_CAPS=""
+if [[ "$QUIET" -eq 0 ]]; then
+  _PYLON_CAPS=$(gst-inspect-1.0 pylonsrc 2>/dev/null || true)
+fi
 
 section "Platform and plugin versions"
 
@@ -811,7 +815,7 @@ case "$ENCODER" in
   h264) _NVENC_ELEM="nvv4l2h264enc" ;;
   h265) _NVENC_ELEM="nvv4l2h265enc" ;;
 esac
-if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
+if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
   # 320x240: well above the H.265 NVENC minimum CTU size on Orin NX.
   # 64x64 is below the hardware minimum and causes a false failure.
   _NVENC_CAPS="video/x-raw(memory:NVMM),format=NV12,width=320,height=240,framerate=30/1"
