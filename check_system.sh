@@ -68,7 +68,9 @@ section() { if [[ "$QUIET" -eq 0 ]]; then echo ""; echo "--- $1 ---"; fi; }
 ok()      { if [[ "$QUIET" -eq 0 ]]; then echo "  [OK]   $1"; fi; }
 info()    { if [[ "$QUIET" -eq 0 ]]; then echo "  [INFO] $1"; fi; }
 warn()    { if [[ "$FATAL_ONLY" -eq 0 ]]; then echo "  [WARN] $1"; fi; WARNINGS=$(( WARNINGS + 1 )); }
-fail()    { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
+fail()      { echo "  [FAIL] $1"; FAILURES=$(( FAILURES + 1 )); }
+hint()      { if [[ "$FATAL_ONLY" -eq 0 ]]; then echo "         $1"; fi; }
+fail_hint() { echo "         $1"; }
 
 # autofix DESCRIPTION COMMAND
 # Runs COMMAND when --autofix is set. Skipped silently otherwise.
@@ -218,9 +220,9 @@ if [[ "$_TIME_SYNCED" -eq 1 ]]; then
   fi
 else
   warn "System time: not synchronized -- no active NTP daemon detected"
-  warn "     Accurate time needed for Basler chunk timestamp correlation."
-  warn "     Fix now  : sudo ntpdate -u pool.ntp.org  (one-shot sync)"
-  warn "     Persist  : sudo timedatectl set-ntp true  (or: sudo apt install chrony)"
+  hint "Accurate time needed for Basler chunk timestamp correlation."
+  hint "Fix now  : sudo ntpdate -u pool.ntp.org  (one-shot sync)"
+  hint "Persist  : sudo timedatectl set-ntp true  (or: sudo apt install chrony)"
   if command -v ntpdate >/dev/null 2>&1; then
     autofix "Force time sync via ntpdate" "sudo ntpdate -u pool.ntp.org"
   elif command -v chronyc >/dev/null 2>&1; then
@@ -262,11 +264,11 @@ if [[ "$CMA_KB" -gt 0 ]]; then
   CMA_MB=$(( CMA_KB / 1024 ))
   if [[ "$CMA_MB" -lt 128 ]]; then
     fail "CmaTotal: ${CMA_MB} MB -- too small for 12 MP NVMM pipeline (minimum 256 MB)"
-    fail "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub"
-    fail "     or to the device tree bootargs, then reboot."
+    fail_hint "Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub"
+    fail_hint "or to the device tree bootargs, then reboot."
   elif [[ "$CMA_MB" -lt 256 ]]; then
     warn "CmaTotal: ${CMA_MB} MB -- below recommended 256 MB; NVMM alloc may fail under load"
-    warn "     Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub, then reboot."
+    hint "Add 'cma=256M' to GRUB_CMDLINE_LINUX in /etc/default/grub, then reboot."
   else
     ok "CmaTotal: ${CMA_MB} MB"
   fi
@@ -282,22 +284,22 @@ else
   SWAP_FREE_KB=$(grep "^SwapFree:" /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
   SWAP_USED_MB=$(( (SWAP_KB - SWAP_FREE_KB) / 1024 ))
   warn "Swap: ${SWAP_MB} MB configured, ${SWAP_USED_MB} MB in use"
-  warn "     Swap causes latency spikes in NVMM allocation and DMA under pressure."
-  warn "     Disable now  : sudo swapoff -a"
-  warn "     Persist      : sudo sed -i '/swap/Id' /etc/fstab"
+  hint "Swap causes latency spikes in NVMM allocation and DMA under pressure."
+  hint "Disable now  : sudo swapoff -a"
+  hint "Persist      : sudo sed -i '/swap/Id' /etc/fstab"
   autofix "Disable swap" "sudo swapoff -a"
   autofix_persist "Remove swap entries from /etc/fstab" "sudo sed -i '/swap/Id' /etc/fstab"
 fi
 
-ZRAM_COUNT=$(ls /dev/zram* 2>/dev/null | wc -l || echo 0)
-if [[ "$ZRAM_COUNT" -gt 0 ]]; then
-  warn "zram: ${ZRAM_COUNT} device(s) active -- compressed swap adds CPU overhead under pressure"
-  warn "     Disable now  : sudo swapoff /dev/zram0  (or: sudo systemctl stop zramswap)"
-  warn "     Persist      : sudo systemctl disable zramswap"
+ZRAM_SWAP=$(awk 'NR>1 && /zram/{count++} END{print count+0}' /proc/swaps 2>/dev/null || echo 0)
+if [[ "$ZRAM_SWAP" -gt 0 ]]; then
+  warn "zram: ${ZRAM_SWAP} device(s) active as swap -- compressed swap adds CPU overhead under pressure"
+  hint "Disable now  : sudo swapoff /dev/zram0  (or: sudo systemctl stop zramswap)"
+  hint "Persist      : sudo systemctl disable zramswap"
   autofix "Disable zram swap" "for z in /dev/zram*; do sudo swapoff \"\$z\" 2>/dev/null || true; done"
   autofix_persist "Disable zramswap service" "sudo systemctl disable zramswap 2>/dev/null || sudo systemctl disable systemd-zram-setup@zram0.service 2>/dev/null || true"
 else
-  ok "zram: not active"
+  ok "zram: not active as swap"
 fi
 
 
@@ -329,8 +331,8 @@ if command -v nvpmodel >/dev/null 2>&1; then
     info "      List available modes: sudo nvpmodel --list-modes"
   elif [[ -n "$_PMODE_W" && "$_PMODE_W" -le 10 ]]; then
     warn "nvpmodel: $POWER_LINE"
-    warn "     ${_PMODE_W}W may be marginal for 4K/30fps color NVMM capture and encode."
-    warn "     Consider the 15W mode: sudo nvpmodel --list-modes"
+    hint "${_PMODE_W}W may be marginal for 4K/30fps color NVMM capture and encode."
+    hint "Consider the 15W mode: sudo nvpmodel --list-modes"
   else
     ok "nvpmodel: $POWER_LINE -- recommended production target for this pipeline"
   fi
@@ -361,9 +363,9 @@ if [[ -f "$GOV_FILE" ]]; then
     info "      often scales up fast enough -- worth testing without jetson_clocks."
   else
     warn "CPU governor: ${GOV} -- clocks may scale down between frames"
-    warn "     Slow scale-up on frame arrival can stall the pipeline under load."
-    warn "     Fix now  : sudo jetson_clocks  (pins all clocks at max; adds ~3-5 W)"
-    warn "     Persist  : add 'jetson_clocks' to /etc/rc.local before 'exit 0'"
+    hint "Slow scale-up on frame arrival can stall the pipeline under load."
+    hint "Fix now  : sudo jetson_clocks  (pins all clocks at max; adds ~3-5 W)"
+    hint "Persist  : add 'jetson_clocks' to /etc/rc.local before 'exit 0'"
     autofix "Pin clocks with jetson_clocks" "sudo jetson_clocks"
     autofix_persist "Add jetson_clocks to /etc/rc.local" "grep -qF 'jetson_clocks' /etc/rc.local 2>/dev/null || echo 'jetson_clocks' | sudo tee -a /etc/rc.local >/dev/null"
   fi
@@ -382,9 +384,9 @@ if [[ -f "$CUR_FILE" && -f "$MAX_FILE" ]]; then
   MAX_GHZ=$(awk "BEGIN {printf \"%.2f\", ${MAX}/1000000}")
   if [[ "$PCT" -lt 90 ]]; then
     warn "CPU0 clock: ${CUR_GHZ} GHz (${PCT}% of ${MAX_GHZ} GHz max)"
-    warn "     Possible cause: jetson_clocks not running, or thermal throttle"
-    warn "     Fix now  : sudo jetson_clocks"
-    warn "     Persist  : add 'jetson_clocks' to /etc/rc.local before 'exit 0'"
+    hint "Possible cause: jetson_clocks not running, or thermal throttle"
+    hint "Fix now  : sudo jetson_clocks"
+    hint "Persist  : add 'jetson_clocks' to /etc/rc.local before 'exit 0'"
     autofix "Pin clocks with jetson_clocks" "sudo jetson_clocks"
     autofix_persist "Add jetson_clocks to /etc/rc.local" "grep -qF 'jetson_clocks' /etc/rc.local 2>/dev/null || echo 'jetson_clocks' | sudo tee -a /etc/rc.local >/dev/null"
   else
@@ -433,11 +435,11 @@ if [[ -d "$CSTATE_DIR" ]]; then
         info "      if power budget is the priority: ${_ENA}"
       else
         warn "Deepest C-state ${DEEP_NAME} (${DEEP_LATENCY} us) is enabled"
-        warn "     ${DEEP_LATENCY} us wake latency = $(( DEEP_LATENCY / 1000 )) ms per event;"
-        warn "     at 30fps this is $(( DEEP_LATENCY * 100 / 33000 ))% of the frame budget per wake."
-        warn "     Disable only this state; WFI and shallower states stay on to save power."
-        warn "     Fix now  : ${_DIS}"
-        warn "     Persist  : add the above command to /etc/rc.local before 'exit 0'"
+        hint "${DEEP_LATENCY} us wake latency = $(( DEEP_LATENCY / 1000 )) ms per event;"
+        hint "at 30fps this is $(( DEEP_LATENCY * 100 / 33000 ))% of the frame budget per wake."
+        hint "Disable only this state; WFI and shallower states stay on to save power."
+        hint "Fix now  : ${_DIS}"
+        hint "Persist  : add the above command to /etc/rc.local before 'exit 0'"
         autofix "Disable deepest C-state ${DEEP_NAME}" "${_DIS}"
         autofix_persist "Add C-state disable to /etc/rc.local" "grep -qF 'cpuidle/state${DEEP_IDX}/disable' /etc/rc.local 2>/dev/null || echo '${_DIS}' | sudo tee -a /etc/rc.local >/dev/null"
       fi
@@ -521,8 +523,8 @@ if [[ -f "$USB_MEM_FILE" ]]; then
   USB_MEM=$(cat "$USB_MEM_FILE")
   if [[ "$USB_MEM" -lt "$USB_MEM_MIN" ]]; then
     fail "usbfs_memory_mb = ${USB_MEM} MB -- too low (need >= ${USB_MEM_MIN} MB for single 12 MP camera)"
-    fail "     Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
-    fail "     Persist : add the above line to /etc/rc.local before 'exit 0'"
+    fail_hint "Fix now : sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
+    fail_hint "Persist : add the above line to /etc/rc.local before 'exit 0'"
     autofix "Set usbfs_memory_mb to ${USB_MEM_MIN}" "sudo sh -c 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}'"
     autofix_persist "Add usbfs_memory_mb to /etc/rc.local" "grep -qF 'usbfs_memory_mb' /etc/rc.local 2>/dev/null || echo 'echo ${USB_MEM_MIN} > ${USB_MEM_FILE}' | sudo tee -a /etc/rc.local >/dev/null"
   else
@@ -560,9 +562,9 @@ if [[ -f "$USB_AS_FILE" ]]; then
     ok "USB autosuspend: disabled (autosuspend=${USB_AS})"
   else
     warn "USB autosuspend: enabled (delay=${USB_AS} s) -- intermittent latency spikes"
-    warn "     Disable now  : sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
-    warn "     Persist      : echo 'options usbcore autosuspend=-1' | sudo tee /etc/modprobe.d/usbcore.conf"
-    warn "                    (alternative: add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX)"
+    hint "Disable now  : sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
+    hint "Persist      : echo 'options usbcore autosuspend=-1' | sudo tee /etc/modprobe.d/usbcore.conf"
+    hint "               (alternative: add 'usbcore.autosuspend=-1' to GRUB_CMDLINE_LINUX)"
     autofix "Disable USB autosuspend" "sudo sh -c 'echo -1 > ${USB_AS_FILE}'"
     autofix_persist "Persist autosuspend disable via modprobe.d" "echo 'options usbcore autosuspend=-1' | sudo tee /etc/modprobe.d/usbcore.conf >/dev/null"
   fi
@@ -609,9 +611,9 @@ if [[ -n "$BASLER_DEV_PATH" ]]; then
       ;;
     480)
       fail "USB connection speed: ${SPEED} Mbps -- USB 2.0 High Speed"
-      fail "     Camera is on a USB 2.0 port or hub. At 4K/30fps the pipeline"
-      fail "     needs ~530 MB/s; USB 2.0 provides ~40 MB/s. Plug directly into"
-      fail "     a USB 3.x blue port on the Jetson carrier board."
+      fail_hint "Camera is on a USB 2.0 port or hub. At 4K/30fps the pipeline"
+      fail_hint "needs ~530 MB/s; USB 2.0 provides ~40 MB/s. Plug directly into"
+      fail_hint "a USB 3.x blue port on the Jetson carrier board."
       ;;
     *)
       warn "USB connection speed: ${SPEED} Mbps -- expected 5000 or 10000"
@@ -642,9 +644,9 @@ if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
     ok "pylonsrc framerate control: caps negotiation supported (${_NEG_FPS} fps honored)"
   else
     warn "pylonsrc framerate control: NOT supported by this plugin version"
-    warn "     Requested ${_TEST_FPS}/1 fps via caps, camera negotiated ${_NEG_FPS}"
-    warn "     Camera runs at hardware-fixed rate regardless of caps framerate field."
-    warn "     Upgrade gst-plugin-pylon: https://github.com/basler/gst-plugin-pylon/releases"
+    hint "Requested ${_TEST_FPS}/1 fps via caps, camera negotiated ${_NEG_FPS}"
+    hint "Camera runs at hardware-fixed rate regardless of caps framerate field."
+    hint "Upgrade gst-plugin-pylon: https://github.com/basler/gst-plugin-pylon/releases"
   fi
 fi
 
@@ -694,7 +696,7 @@ if [[ "$FATAL_ONLY" -eq 0 ]] && gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
       ! fakesink sync=false 2>&1 || true)
     if echo "$_CHUNK_OUT" | grep -qi "error"; then
       warn "Chunk timestamp: ChunkModeActive=true was rejected by camera or plugin"
-      warn "     Camera may not support chunk mode or no camera is connected."
+      hint "Camera may not support chunk mode or no camera is connected."
     else
       ok "Chunk timestamp: ChunkModeActive=true accepted -- hardware timestamps active"
       info "     Pro model supports PTP (IEEE 1588) for network-synced timestamps."
@@ -751,7 +753,7 @@ done || true)
 if [[ -n "$_PYLON_PIDS" ]]; then
   _PYLON_PID_LIST=$(echo "$_PYLON_PIDS" | tr '\n' ' ' | sed 's/ $//')
   fail "pylonsrc pipeline already running -- PID(s): ${_PYLON_PID_LIST}"
-  fail "     Camera is exclusively locked. Stop it first: kill ${_PYLON_PID_LIST}"
+  fail_hint "Camera is exclusively locked. Stop it first: kill ${_PYLON_PID_LIST}"
   autofix "Kill running pylonsrc pipeline(s)" "kill ${_PYLON_PID_LIST}"
 else
   ok "No other pylonsrc pipeline running"
@@ -766,9 +768,9 @@ if gst-inspect-1.0 pylonsrc >/dev/null 2>&1; then
     ok "pylonsrc NVMM caps: zero-copy color capture path available"
   else
     fail "pylonsrc does not advertise NVMM caps (memory:NVMM)"
-    fail "     Color capture requires a system RAM -> GPU copy per frame."
-    fail "     Upgrade to an NVMM-capable pylon GStreamer plugin:"
-    fail "     github.com/basler/gst-plugin-pylon/releases"
+    fail_hint "Color capture requires a system RAM -> GPU copy per frame."
+    fail_hint "Upgrade to an NVMM-capable pylon GStreamer plugin:"
+    fail_hint "github.com/basler/gst-plugin-pylon/releases"
   fi
 fi
 
@@ -809,8 +811,8 @@ if gst-inspect-1.0 "${_NVENC_ELEM}" >/dev/null 2>&1; then
     ok "NVENC hardware: ${_NVENC_ELEM} functional (test encode passed)"
   else
     fail "NVENC hardware: ${_NVENC_ELEM} plugin present but test encode failed"
-    fail "     NVENC silicon may be absent on this SoM. This pipeline requires"
-    fail "     hardware H.264/H.265 encoding; software cannot sustain 4K/30fps."
+    fail_hint "NVENC silicon may be absent on this SoM. This pipeline requires"
+    fail_hint "hardware H.264/H.265 encoding; software cannot sustain 4K/30fps."
   fi
 fi
 
@@ -825,8 +827,8 @@ fi
 # GST_DEBUG: if set it causes per-buffer logging overhead in every element
 if [[ -n "${GST_DEBUG:-}" ]]; then
   warn "GST_DEBUG is set: '${GST_DEBUG}'"
-  warn "     Per-element logging adds CPU overhead -- unset for production"
-  warn "     Unset: unset GST_DEBUG"
+  hint "Per-element logging adds CPU overhead -- unset for production"
+  hint "Unset: unset GST_DEBUG"
 else
   ok "GST_DEBUG is not set"
 fi
@@ -837,8 +839,8 @@ if [[ -f "$FTRACE_FILE" ]]; then
   FTRACE=$(cat "$FTRACE_FILE" 2>/dev/null || echo "0")
   if [[ "$FTRACE" == "1" ]]; then
     warn "ftrace is active -- kernel function tracing adds scheduling overhead"
-    warn "     Disable now  : sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
-    warn "     Persist      : not needed -- ftrace resets on reboot unless explicitly re-enabled"
+    hint "Disable now  : sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
+    hint "Persist      : not needed -- ftrace resets on reboot unless explicitly re-enabled"
     autofix "Disable ftrace" "sudo sh -c 'echo 0 > ${FTRACE_FILE}'"
   else
     ok "ftrace is inactive"
@@ -885,8 +887,8 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
 
   if [[ -z "$MEDIAMTX_BIN" ]]; then
     fail "mediamtx binary not found in PATH or common locations"
-    fail "     Download for ARM64 from: github.com/bluenviron/mediamtx/releases"
-    fail "     Place in /usr/local/bin/ or alongside these scripts"
+    fail_hint "Download for ARM64 from: github.com/bluenviron/mediamtx/releases"
+    fail_hint "Place in /usr/local/bin/ or alongside these scripts"
   else
     ok "mediamtx binary: ${MEDIAMTX_BIN}"
 
@@ -930,8 +932,8 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     ok "net.core.rmem_max = $(( NET_RMEM / 1024 )) KB"
   else
     warn "net.core.rmem_max = $(( NET_RMEM / 1024 )) KB -- below 2 MB minimum"
-    warn "     Fix now : sudo sysctl -w net.core.rmem_max=${NET_REC}"
-    warn "     Persist : echo 'net.core.rmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
+    hint "Fix now : sudo sysctl -w net.core.rmem_max=${NET_REC}"
+    hint "Persist : echo 'net.core.rmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
     autofix "Set net.core.rmem_max to ${NET_REC}" "sudo sysctl -w net.core.rmem_max=${NET_REC}"
     autofix_persist "Persist rmem_max in /etc/sysctl.conf" "grep -qF 'rmem_max' /etc/sysctl.conf 2>/dev/null || echo 'net.core.rmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf >/dev/null"
   fi
@@ -940,9 +942,9 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
     ok "net.core.wmem_max = $(( NET_WMEM / 1024 )) KB"
   else
     warn "net.core.wmem_max = $(( NET_WMEM / 1024 )) KB -- below 2 MB minimum"
-    warn "     rtspclientsink will block the pipeline at bitrates above ~20 Mbps."
-    warn "     Fix now : sudo sysctl -w net.core.wmem_max=${NET_REC}"
-    warn "     Persist : echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
+    hint "rtspclientsink will block the pipeline at bitrates above ~20 Mbps."
+    hint "Fix now : sudo sysctl -w net.core.wmem_max=${NET_REC}"
+    hint "Persist : echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf"
     autofix "Set net.core.wmem_max to ${NET_REC}" "sudo sysctl -w net.core.wmem_max=${NET_REC}"
     autofix_persist "Persist wmem_max in /etc/sysctl.conf" "grep -qF 'wmem_max' /etc/sysctl.conf 2>/dev/null || echo 'net.core.wmem_max=${NET_REC}' | sudo tee -a /etc/sysctl.conf >/dev/null"
   fi
@@ -961,7 +963,7 @@ _ONVIF_SERIAL="${ONVIF_SERIAL:-SN1234567890}"
 _SERIAL_FIX="_s=\$(cat /sys/bus/platform/devices/*/fuse/serial_number 2>/dev/null | head -1 | tr -d '[:space:]'); [[ -n \"\$_s\" ]] && sed -i \"s|^ONVIF_SERIAL=.*|ONVIF_SERIAL=\$_s|\" \"${_CONF}\""
 if [[ "$_ONVIF_SERIAL" == "SN1234567890" ]]; then
   warn "ONVIF serial_num is the default 'SN1234567890' -- NVR cannot distinguish units"
-  warn "     Persist : ${_SERIAL_FIX}"
+  hint "Persist : ${_SERIAL_FIX}"
   autofix_persist "Set ONVIF_SERIAL from Jetson board serial in stream.conf" "${_SERIAL_FIX}"
 else
   ok "ONVIF serial_num: ${_ONVIF_SERIAL}"
@@ -980,10 +982,10 @@ if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
     if [[ $_chk_ec -eq 126 ]]; then
       if [[ "${ONVIF_ENABLED:-false}" == "true" ]]; then
         fail "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
-        fail "     Re-run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
+        fail_hint "Re-run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
       else
         warn "ONVIF: bin/${_chk} cannot execute -- wrong CPU architecture or bad binary"
-        warn "     Not active now (ONVIF_ENABLED=false), but fix before enabling"
+        hint "Not active now (ONVIF_ENABLED=false), but fix before enabling"
       fi
     else
       ok "ONVIF: bin/${_chk} runs on this CPU"
@@ -997,15 +999,15 @@ if [[ -n "$_ONVIF_BIN" && -n "$_WSD_BIN" && -n "$_LIGHTTPD_BIN" ]]; then
       ok "ONVIF: wsd_simple_server running (WS-Discovery active)"
     else
       warn "ONVIF: wsd_simple_server not running -- NVR auto-discovery inactive"
-      warn "     Restart via send_stream.sh or ./bin/start_onvif.sh"
+      hint "Restart via send_stream.sh or ./bin/start_onvif.sh"
     fi
   else
     # lighttpd not running -- check for stray wsd that could block a fresh start
     if [[ -n "$_WSD_PIDS" ]]; then
       _WSD_PID_LIST=$(echo "$_WSD_PIDS" | tr '\n' ' ' | sed 's/ $//')
       warn "ONVIF: stray wsd_simple_server running (PID ${_WSD_PID_LIST}) but lighttpd is not"
-      warn "     This may prevent WS-Discovery from starting cleanly."
-      warn "     Stop it: kill ${_WSD_PID_LIST}"
+      hint "This may prevent WS-Discovery from starting cleanly."
+      hint "Stop it: kill ${_WSD_PID_LIST}"
     else
       info "ONVIF: installed but not running (port ${ONVIF_PORT} not listening)"
       info "     Start via send_stream.sh (ONVIF_ENABLED=true) or ./bin/start_onvif.sh"
@@ -1017,9 +1019,9 @@ else
   [[ -z "$_WSD_BIN"      ]] && _MISSING="${_MISSING} wsd_simple_server"
   [[ -z "$_LIGHTTPD_BIN" ]] && _MISSING="${_MISSING} lighttpd"
   warn "ONVIF: not available -- missing:${_MISSING}"
-  warn "     onvif_simple_server / wsd_simple_server: run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
-  warn "     lighttpd: sudo apt install lighttpd"
-  warn "     Run ./bin/start_onvif.sh after installing to enable NVR discovery"
+  hint "onvif_simple_server / wsd_simple_server: run ./bin/sources/cross-build-windows.ps1 (Windows) or ./bin/sources/build-on-device.sh (Jetson)"
+  hint "lighttpd: sudo apt install lighttpd"
+  hint "Run ./bin/start_onvif.sh after installing to enable NVR discovery"
 fi
 
 
@@ -1048,10 +1050,13 @@ fi
 if [[ "$AUTOFIX" -eq 1 ]]; then
   echo ""
   echo "  Autofix: ${FIXES_APPLIED} applied, ${FIXES_FAILED} failed"
-  if [[ "$AUTOFIX_PERSIST" -eq 1 ]]; then
-    if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."; fi
-  else
-    if [[ "$FIXES_APPLIED" -gt 0 ]]; then echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."; fi
+  if [[ "$FIXES_APPLIED" -gt 0 ]]; then
+    if [[ "$AUTOFIX_PERSIST" -eq 1 ]]; then
+      echo "  Note: runtime and persistent fixes applied. GRUB-based items (CMA, autosuspend) still need manual steps."
+    else
+      echo "  Note: runtime fixes applied. Run with --autofix-persist to also write persistent fixes."
+    fi
+    echo "  Re-run ./check_system.sh to verify fixes took effect."
   fi
 fi
 echo "======================================================"
