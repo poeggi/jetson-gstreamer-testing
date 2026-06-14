@@ -233,9 +233,13 @@ EOF
       fi
 
       # onvif_simple_server opens /var/log/onvif_simple_server.log before
-      # parsing args and exits if it can't write it -- pre-create it once.
-      sudo touch /var/log/onvif_simple_server.log 2>/dev/null \
-        && sudo chmod 666 /var/log/onvif_simple_server.log 2>/dev/null || true
+      # parsing args and exits if it can't write it. Pre-create it once via
+      # check_system.sh --autofix; warn here if it hasn't been done yet.
+      if [[ ! -w /var/log/onvif_simple_server.log ]]; then
+        echo "WARNING: /var/log/onvif_simple_server.log not writable -- ONVIF CGI will fail" >&2
+        echo "         Fix once: sudo touch /var/log/onvif_simple_server.log && sudo chmod 666 /var/log/onvif_simple_server.log" >&2
+        echo "         Or run: ./check_system.sh --autofix" >&2
+      fi
 
       # Create a shell wrapper per service endpoint in the document root.
       # lighttpd (cgi.assign = "" => "") executes them directly; each wrapper

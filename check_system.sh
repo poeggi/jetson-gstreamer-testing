@@ -975,6 +975,21 @@ _LIGHTTPD_BIN=$(_find_bin lighttpd)
 # /proc/device-tree/serial-number is a DT string -- strip trailing null byte.
 _ONVIF_SERIAL="${ONVIF_SERIAL:-SN1234567890}"
 _SERIAL_FIX="_s=\$(tr -d '\\0[:space:]' < /proc/device-tree/serial-number 2>/dev/null); [[ -n \"\$_s\" ]] && sed -i \"s|^ONVIF_SERIAL=.*|ONVIF_SERIAL=\$_s|\" \"${_CONF}\""
+
+# onvif_simple_server opens /var/log/onvif_simple_server.log before arg
+# parsing and exits if it cannot write it.
+_ONVIF_LOG="/var/log/onvif_simple_server.log"
+if [[ -w "$_ONVIF_LOG" ]]; then
+  ok "ONVIF log writable: ${_ONVIF_LOG}"
+else
+  warn "ONVIF log not writable: ${_ONVIF_LOG}"
+  hint "onvif_simple_server exits on every request without this."
+  hint "Fix once: sudo touch ${_ONVIF_LOG}"
+  hint "          sudo chmod 666 ${_ONVIF_LOG}"
+  autofix "Create writable ONVIF log file" \
+    "sudo touch ${_ONVIF_LOG} && sudo chmod 666 ${_ONVIF_LOG}"
+fi
+
 if [[ "$_ONVIF_SERIAL" == "SN1234567890" ]]; then
   warn "ONVIF_SERIAL is default -- NVR cannot distinguish devices"
   hint "Persist: set ONVIF_SERIAL in stream.conf to the board serial"

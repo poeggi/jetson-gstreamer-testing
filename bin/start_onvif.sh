@@ -97,9 +97,12 @@ generate_lighttpd_conf() {
   local onvif_bin="${SCRIPT_DIR}/onvif_simple_server"
 
   # onvif_simple_server opens /var/log/onvif_simple_server.log before parsing
-  # args and exits if it can't write it -- pre-create it once.
-  sudo touch /var/log/onvif_simple_server.log 2>/dev/null \
-    && sudo chmod 666 /var/log/onvif_simple_server.log 2>/dev/null || true
+  # args and exits if it can't write it. Pre-create once via check_system.sh
+  # --autofix; warn here if it hasn't been done yet.
+  if [[ ! -w /var/log/onvif_simple_server.log ]]; then
+    echo "WARNING: /var/log/onvif_simple_server.log not writable -- ONVIF CGI will fail" >&2
+    echo "         Fix once: sudo touch /var/log/onvif_simple_server.log && sudo chmod 666 /var/log/onvif_simple_server.log" >&2
+  fi
 
   # Shell wrapper per service: calls binary with -c to pass our conf and
   # appends the service name so the binary routes to the right handler.
