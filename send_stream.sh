@@ -147,7 +147,11 @@ if [[ "$OUTPUT_MODE" == "rtsp" ]]; then
       exit 1
     }
     echo "Starting MediaMTX (${MEDIAMTX_BIN})..."
-    "$MEDIAMTX_BIN" "${SCRIPT_DIR}/blueprints/mediamtx.yml" >/dev/null 2>&1 &
+    if [[ "$DEBUG_MODE" -eq 1 ]]; then
+      "$MEDIAMTX_BIN" "${SCRIPT_DIR}/blueprints/mediamtx.yml" &
+    else
+      "$MEDIAMTX_BIN" "${SCRIPT_DIR}/blueprints/mediamtx.yml" >/dev/null 2>&1 &
+    fi
     MEDIAMTX_PID=$!
     MEDIAMTX_WE_STARTED=1
     READY=0
