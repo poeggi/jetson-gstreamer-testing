@@ -1,6 +1,6 @@
 param(
     [string]$Stream  = "main",        # main | sub
-    [string]$Host    = "192.168.1.252",
+    [string]$Jetson  = "192.168.1.252",
     [string]$Port    = "8554",
     [int]   $Caching = 200            # 200ms minimum confirmed for H.265; below this VLC drops frames
 )
@@ -11,7 +11,7 @@ if (-not $paths.ContainsKey($Stream)) {
     exit 1
 }
 
-$url = "rtsp://${Host}:${Port}$($paths[$Stream])"
+$url = "rtsp://${Jetson}:${Port}$($paths[$Stream])"
 $vlc = "${env:ProgramFiles}\VideoLAN\VLC\vlc.exe"
 
 if (-not (Test-Path $vlc)) {
