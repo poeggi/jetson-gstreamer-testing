@@ -44,10 +44,10 @@ Two things to verify for your setup:
 ```
 
 ### RTSP URLs
-| Stream | URL |
-|--------|-----|
-| MAIN (H.265 4K) | `rtsp://host:8554/main` |
-| SUB (H.264 1080p) | `rtsp://host:8554/sub` |
+| Stream | Open | Authenticated |
+|--------|------|---------------|
+| MAIN (H.265 4K) | `rtsp://host:8554/main` | `rtsp://guest:guest@host:8554/main-auth` |
+| SUB (H.264 1080p) | `rtsp://host:8554/sub` | `rtsp://guest:guest@host:8554/sub-auth` |
 
 ### NVR Connection (ONVIF)
 

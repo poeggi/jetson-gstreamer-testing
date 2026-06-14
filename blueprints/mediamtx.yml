@@ -11,4 +11,16 @@ webrtcIPsFromInterfaces: yes
 paths:
   main:
 
+  main-auth:
+    readUser: guest
+    readPass: guest
+    source: rtsp://127.0.0.1:8554/main
+    sourceOnDemand: yes
+
   sub:
+
+  sub-auth:
+    readUser: guest
+    readPass: guest
+    source: rtsp://127.0.0.1:8554/sub
+    sourceOnDemand: yes
