@@ -14,7 +14,7 @@
 
 set -e
 
-BRANCH="${1:-feature/onvif-mac-uuid}"
+BRANCH="${1:-feature/onvif-uuid}"
 LTCVER="1.18.2"
 SRC="/tmp/onvif-build"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
