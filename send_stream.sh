@@ -233,7 +233,7 @@ EOF
       [[ "$DEBUG_MODE" -eq 1 ]] && _LIGHTTPD_ERRORLOG="/dev/stderr"
       cat > "$ONVIF_LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
-server.bind          = "::"
+server.bind          = "0.0.0.0"
 server.document-root = "/tmp/onvif_root"
 server.errorlog      = "${_LIGHTTPD_ERRORLOG}"
 server.modules       = ("mod_cgi", "mod_setenv")

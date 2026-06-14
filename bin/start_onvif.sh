@@ -100,7 +100,7 @@ generate_lighttpd_conf() {
   # which is the Linux default; Ubuntu 22.04 ships with it at 0).
   cat > "$LIGHTTPD_CONF" <<EOF
 server.port          = ${ONVIF_PORT}
-server.bind          = "::"
+server.bind          = "0.0.0.0"
 server.document-root = "/tmp/onvif_root"
 server.pid-file      = "${LIGHTTPD_PID_FILE}"
 server.errorlog      = "/tmp/lighttpd_onvif.log"
